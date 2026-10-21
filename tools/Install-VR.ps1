@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 $project=Split-Path $PSScriptRoot -Parent
 $bin=[IO.Path]::GetFullPath((Join-Path $GameDir 'Binaries'))
 if(Get-Process 'ShippingPC-BmGame' -ErrorAction SilentlyContinue) {throw 'Close Asylum before installation.'}
-if((Get-FileHash -LiteralPath (Join-Path $bin 'ShippingPC-BmGame.exe')).Hash -ne '4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028') {throw 'Unsupported Asylum executable.'}
+if((Get-FileHash -LiteralPath (Join-Path $bin 'ShippingPC-BmGame.exe')).Hash -notin @('4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028','ed65ce3c52baca7adaea00cb0e5def3d8a78bd05f7ceacd68a68462e92d8dab2')) {throw 'Unsupported Asylum executable.'}
 if(Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Batman_Asylum/profile-active.json')) {throw 'An Asylum graphics profile is still active.'}
 $manifestPath=Join-Path $bin 'asylumvr_manifest.json'
 $previous=$null

@@ -32,7 +32,8 @@ nothing lags behind when the camera swings. Made the same way as
 ## What you need
 
 - **Batman: Arkham Asylum Game of the Year Edition** on Steam, on Windows 10 or 11. (The mod is made for that exact
-  version of the game; the installer checks it.)
+  version of the game; the installer checks it. The [Joker DLC Patcher](https://www.nexusmods.com/batmanarkhamasylum/mods/160)
+  is fine too.)
 - **A PC VR headset and the software you use for PC VR games** (for example Virtual Desktop, SteamVR or the Meta Quest
   Link app).
 - **A gamepad.** Quest Touch controllers work through Virtual Desktop, which presents them as a gamepad.
@@ -112,6 +113,7 @@ The DLSS helper needs NVIDIA's NGX SDK. Development notes: `STATUS.md`, `BUILD_P
 
 Built on [bioshock-vr](https://github.com/mohamad-balouza/bioshock-vr) (MIT), MinHook, Dear ImGui and the OpenXR SDK.
 The per-eye DLSS method follows the [Luma Framework](https://github.com/Filoppi/Luma-Framework)'s Arkham Knight mod.
+Joker DLC Patcher support found by [Godoy301](https://github.com/Godoy301/Batman-Arkham-Asylum-VR).
 DLSS and NVAPI are NVIDIA's. Full list: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 The picture at the top is the game's own Steam store artwork, shown from Steam (Batman: Arkham Asylum © Warner Bros.
 Entertainment); it is not part of this repository.

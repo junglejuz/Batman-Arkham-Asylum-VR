@@ -6,7 +6,8 @@ import hashlib,struct,re
 root=Path(__file__).resolve().parents[1]
 exe=Path(r'E:/Games/Steam/steamapps/common/Batman Arkham Asylum GOTY/Binaries/ShippingPC-BmGame.exe')
 raw=exe.read_bytes()
-assert hashlib.sha256(raw).hexdigest()=='4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028'
+assert hashlib.sha256(raw).hexdigest() in {'4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028', # Steam GOTY
+ 'ed65ce3c52baca7adaea00cb0e5def3d8a78bd05f7ceacd68a68462e92d8dab2'} # + Joker DLC Patcher (2 bytes in 0x16153C0)
 pe=struct.unpack_from('<I',raw,0x3c)[0];sections=struct.unpack_from('<H',raw,pe+6)[0]
 optional=struct.unpack_from('<H',raw,pe+20)[0];base=struct.unpack_from('<I',raw,pe+24+28)[0]
 def at(va,n):

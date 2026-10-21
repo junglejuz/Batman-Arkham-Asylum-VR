@@ -1,8 +1,36 @@
+## RELEASE 0.1.5 (2026-10-21, JJ: "ok deploy, update the github page with release notes")
+
+PROFILECLEAN + JOKERCOMPAT (below). 0.1.4 was already public (2026-10-20), so this is 0.1.5 (CMake, build id
+Asylum-0.1.5-PROFILECLEAN, panel title, make_package). 11/11 offline checks pass; package zip sha256
+4f044fe921f5a78fed0b91abe235e94e8d8acc4160200acef14c4eadc8010abf, installed on JJ's game by the package installer
+(game-folder dll = build-native9 dll, manifest 0.1.5). JJ's 62 old profiles folders go on his next launch.
+
+## PROFILECLEAN + JOKERCOMPAT (2026-10-21, 0.1.4 local)
+
+Looked up: WRITEDENIED (this file; journal + restore skip rules kept as they were), memory
+`launcher-documents-write-denied`; playbook/guides: nothing relevant (launcher housekeeping, not a VR technique).
+
+PROFILECLEAN (player report): every launch left `%LOCALAPPDATA%\Batman_Asylum\profiles\<time>` behind (JJ's PC: 62
+folders). `Remove-AsylumProfileBackups` (Graphics-Profile.ps1) deletes the launcher's timestamp folders only AFTER
+Restore-AsylumProfile succeeded and the journal is gone: at game exit and after recovering an interrupted launch. A failed
+restore throws first, so its journal and backups stay. It also sweeps older builds' leftovers. Same cleanup in the
+installer's and uninstaller's interrupted-launch recovery (uninstaller: matters with -KeepSettings). STATIC: scratch test
+(tampered backup -> throw, all kept; good restore -> timestamp folders gone, other folder kept, file restored); 5 scripts
+parse clean.
+
+JOKERCOMPAT: Godoy301's fork (v0.1.4-joker-compat, commit 46dda1c, github.com/Godoy301/Batman-Arkham-Asylum-VR) found
+the DLL's own exe hash check left the Joker DLC Patcher's exe flat. Ported by hand: launcher, both installers, DLL and
+asylum_abi_check accept `ed65ce3c...8dab2` besides the Steam GOTY `4dac1f5e...b028`. The patcher changes 2 bytes at file
+0x12153C6/0x12153CB = VA 0x16153C6/CB, inside the small DLC flag routine at 0x16153C0 (vcall +0x4A4, sets bit 19 of
++0x680); nothing of ours hooks or signature-checks near it (SOURCE grep). The DLL logs which exe it accepted. Not taken:
+their CI workflows, Apply-JokerCompatBuild.ps1 payload updater, the extra D3D9-fallback diagnostic. LIVE on the Joker
+exe: the fork's maintainer reports VR starts; not tested here (JJ's exe is stock). DLL built, ABI check passes.
+
 ## UPGRADEBLACK2 (2026-10-20 19:1x) - static-art rule caught a bat sweep's black hold
 LIVE 19:03:59: "UPGRADEBLACK: static black menu artwork kept ... primitives10 vertices12" = the 10-triangle full-stage AA
 rectangle, which classify() calls a bat only while a sweep runs (continuing, <= 2 s): the sweep's own black hold, never a
 minute-long menu mesh. Fix: rectangles are exempt from the static rule (only the stage-covering / edge-sweep mesh path can
-stay "bat" for a whole menu). Built, 11/11 checks; NOT yet installed (game running at build time). JJ 19:1x: first-person
+stay "bat" for a whole menu). Built, 11/11 checks; NOT yet installed (game running at build time). CORRECTION 2026-10-21: it IS installed (game folder dll pe-timestamp 0x6AD72150, written 19:07:44, manifest 19:10:50) but has not run yet (last launch 19:06-19:10 ran 0x6AD71DCF). JJ tested the first UPGRADEBLACK fix in that launch: the log caught the upgrades backdrop at 19:06:16, 19:08:21, 19:10:10. JJ 19:1x: first-person
 camera "may have been an anomaly. It seems okay now"; log 19:05: head bone found, offset -7, -5.3, 13.1 UU.
 
 ## UPGRADEBLACK - upgrades screen completely black in the headset, fine on the desktop (JJ 2026-10-20, 0.1.4 local)

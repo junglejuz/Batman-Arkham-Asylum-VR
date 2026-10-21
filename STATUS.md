@@ -2,6 +2,10 @@
 
 README.md is the player page since release 0.1.0; these are the development checkpoints it used to hold.
 
+CURRENT 0.1.5 RELEASED (2026-10-21): PROFILECLEAN + JOKERCOMPAT; BUILD_PLAN "RELEASE 0.1.5".
+
+CURRENT PROFILECLEAN + JOKERCOMPAT (2026-10-21, in 0.1.5): launcher deletes its settings backup folders after a good restore; Joker DLC Patcher exe accepted (Godoy301). BUILD_PLAN "PROFILECLEAN + JOKERCOMPAT".
+
 CURRENT 0.1.3 RELEASED (2026-10-20): FIRSTPERSON + WRITEDENIED; BUILD_PLAN "RELEASE 0.1.3".
 
 CURRENT FIRSTPERSON (2026-10-20, in 0.1.3): City's first-person mode (panel / double-click both sticks). HEADSET pending; BUILD_PLAN "FIRSTPERSON".

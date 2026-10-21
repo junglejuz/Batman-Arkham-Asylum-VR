@@ -15,6 +15,7 @@ $Mod = @{
     Name        = 'Batman Asylum VR'
     Exe         = 'ShippingPC-BmGame.exe'
     ExeSha256   = '4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028'   # Steam GOTY, the tested build
+    ExeSha256Joker = 'ed65ce3c52baca7adaea00cb0e5def3d8a78bd05f7ceacd68a68462e92d8dab2' # same build after the Joker DLC Patcher (Godoy301)
     SteamFolder = 'Batman Arkham Asylum GOTY\Binaries'                                  # under steamapps\common
     ProxyMarker = '[batman_asylum-proxy]'                                               # text inside our d3d9 / xinput1_3
     Backup      = 'BatmanAsylumVR_backup'                                               # in the game's top folder
@@ -86,8 +87,8 @@ if (Get-Process -Name 'ShippingPC-BmGame' -ErrorAction SilentlyContinue) { Fail 
 $GameDir = [IO.Path]::GetFullPath($GameDir)
 $GameRoot = [IO.Path]::GetFullPath((Join-Path $GameDir '..'))   # ...\Batman Arkham Asylum GOTY
 Say "  Game: $GameDir"
-if ((Get-FileHash -LiteralPath (Join-Path $GameDir $Mod.Exe)).Hash -ne $Mod.ExeSha256) {
-    Fail 'this copy of the game is a different version from the one the mod was made for (Steam, Game of the Year Edition). Nothing was changed.'
+if ((Get-FileHash -LiteralPath (Join-Path $GameDir $Mod.Exe)).Hash -notin @($Mod.ExeSha256, $Mod.ExeSha256Joker)) {
+    Fail 'this copy of the game is a different version from the one the mod was made for (Steam, Game of the Year Edition, unpatched or with the Joker DLC Patcher). Nothing was changed.'
 }
 if (-not (Test-Path (Join-Path $GameRoot 'BmGame\Config\BmEngine.ini'))) {
     Fail ('the game has not made its settings yet. Start Batman: Arkham Asylum once from Steam as normal, wait for the ' +
@@ -112,6 +113,12 @@ if (Test-Path -LiteralPath $journal) {
     if ($left.Count) { Say '  The VR launcher will try again and tell you what to do.' Yellow }
     else {
         Remove-Item -LiteralPath $journal -Force
+        # PROFILECLEAN: the originals are back, so the launch's backup copies (and older builds' leftovers) can go.
+        $profiles = Join-Path $DataDir 'profiles'
+        if (Test-Path -LiteralPath $profiles) {
+            Get-ChildItem -LiteralPath $profiles -Directory | Where-Object Name -Match '^\d{8}_\d{6}_\d{3}$' |
+                ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+        }
         Say '  Settings from an interrupted VR launch were put back first.' Yellow
     }
 }

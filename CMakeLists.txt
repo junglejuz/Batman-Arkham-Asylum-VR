@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(BatmanAsylumVR VERSION 0.1.4 LANGUAGES C CXX)
+project(BatmanAsylumVR VERSION 0.1.5 LANGUAGES C CXX)
 if(NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
  message(FATAL_ERROR "Asylum requires MSVC Win32: -G Visual Studio 17 2022 -A Win32")
 endif()
@@ -15,7 +15,7 @@ add_library(batman_asylum SHARED ${CORE_SOURCES} src/hash.cpp src/game/adapter_r
  src/game/asylum/window.cpp src/game/asylum/afw.cpp src/game/asylum/detail9.cpp src/game/asylum/pipeline_cache.cpp src/game/asylum/dynamic_pipeline.cpp src/game/asylum/managed9.cpp src/game/asylum/native9_bridge.cpp src/game/asylum/billboard9.cpp src/game/asylum/markers9.cpp src/game/asylum/menu_state.cpp src/game/asylum/transitions9.cpp src/game/asylum/first_person.cpp)
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
 file(WRITE "${CMAKE_BINARY_DIR}/generated/bvr_version.h"
- "#pragma once\n#define BVR_VERSION \"${PROJECT_VERSION}\"\n#define BVR_BUILD_ID \"Asylum-0.1.4-HEADLOCK\"\n")
+ "#pragma once\n#define BVR_VERSION \"${PROJECT_VERSION}\"\n#define BVR_BUILD_ID \"Asylum-0.1.5-PROFILECLEAN\"\n")
 target_include_directories(batman_asylum PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(batman_asylum PRIVATE minhook imgui openxr_loader d3d11 d3d12 dxgi d3dcompiler dbghelp windowscodecs ole32 bcrypt psapi dxguid)
 target_compile_definitions(batman_asylum PRIVATE BVR_WITH_OPENXR)

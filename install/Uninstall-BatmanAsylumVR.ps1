@@ -61,6 +61,12 @@ if (Test-Path -LiteralPath $journal) {
         }
     }
     Remove-Item -LiteralPath $journal -Force
+    # PROFILECLEAN: their backup copies go too (matters with -KeepSettings; otherwise the data folder goes below).
+    $profiles = Join-Path $DataDir 'profiles'
+    if (Test-Path -LiteralPath $profiles) {
+        Get-ChildItem -LiteralPath $profiles -Directory | Where-Object Name -Match '^\d{8}_\d{6}_\d{3}$' |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    }
     Say '  Your graphics settings from an interrupted VR launch are back.' Green
 }
 

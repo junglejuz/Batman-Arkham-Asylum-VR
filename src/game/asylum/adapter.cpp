@@ -153,7 +153,7 @@ void on_present(IDXGISwapChain* sc) {
 bool testOptions=false;
 bool test_options(){return testOptions;}
 void draw_ui() {
-    ImGui::TextUnformatted("Batman Asylum VR 0.1.4");
+    ImGui::TextUnformatted("Batman Asylum VR 0.1.5");
     ImGui::TextWrapped("F10 or hold both sticks to open/close. Settings save automatically.");
     stereo_history::draw_ui();
     if(ImGui::Button("Recentre view and screens")){vr::recenter_panel();native::recenter();bridge::recenter_hud();}

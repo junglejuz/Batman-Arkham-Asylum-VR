@@ -9,7 +9,7 @@ import argparse, hashlib, os, re, shutil, sys, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-VERSION = '0.1.4'
+VERSION = '0.1.5'
 ap = argparse.ArgumentParser()
 ap.add_argument('--settings', default=os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Batman_Asylum', 'aa_rendering.ini'))
 a = ap.parse_args()
@@ -65,7 +65,7 @@ for dp, _, fs in os.walk(stage):
             if b.count(b'\n') != b.count(b'\r\n'): bad.append(f + ': not CRLF')
 for f in ('d3d9.dll', 'xinput1_3.dll'):
     if b'[batman_asylum-proxy]' not in open(os.path.join(stage, f), 'rb').read(): bad.append(f + ' is not ours')
-if b'Asylum-0.1.4' not in open(os.path.join(stage, 'batman_asylum.dll'), 'rb').read(): bad.append('batman_asylum.dll is not the 0.1.4 build')
+if b'Asylum-0.1.5' not in open(os.path.join(stage, 'batman_asylum.dll'), 'rb').read(): bad.append('batman_asylum.dll is not the 0.1.5 build')
 st = open(os.path.join(stage, 'files', 'aa_rendering.ini'), encoding='latin-1').read()
 if '[AsylumVR]' not in st: bad.append('aa_rendering.ini lacks [AsylumVR]')
 if re.search(r'(?im)^(AutoCaptures|HideTargetlessGrapple|FixStaleParticles)\s*=\s*1', st): bad.append('aa_rendering.ini has a test switch on')

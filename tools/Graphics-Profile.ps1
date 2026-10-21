@@ -80,3 +80,14 @@ function Restore-AsylumProfile($Profile) {
     }
     if($failed.Count) {throw "Windows did not allow your original graphics settings to be put back: $($failed -join '; '). Copy each original back by hand, or allow PowerShell in Windows Security > Ransomware protection > Controlled folder access, then start VR again."}
 }
+function Remove-AsylumProfileBackups([string]$DataDir,[string]$Keep) {
+    # Player report 2026-10-21 (PROFILECLEAN): every launch left its profiles/<time> folder behind. Call only once the
+    # originals are back and the journal is gone; a failed restore throws first, so its journal and backups stay.
+    # Also sweeps folders earlier builds left. Only launcher-made timestamp folders are touched, never $Keep.
+    $root=Join-Path $DataDir 'profiles'
+    if(!(Test-Path -LiteralPath $root)) {return}
+    foreach($dir in @(Get-ChildItem -LiteralPath $root -Directory | Where-Object Name -Match '^\d{8}_\d{6}_\d{3}$')) {
+        if($Keep -and [IO.Path]::GetFullPath($dir.FullName) -eq [IO.Path]::GetFullPath($Keep)) {continue}
+        try {Remove-Item -LiteralPath $dir.FullName -Recurse -Force} catch {Write-Warning "Could not delete the old settings backup $($dir.FullName): $_"}
+    }
+}

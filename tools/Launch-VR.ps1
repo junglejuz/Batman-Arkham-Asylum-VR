@@ -10,13 +10,15 @@ $manifest=Get-Content -LiteralPath (Join-Path $bin 'asylumvr_manifest.json') -Ra
 foreach($record in $manifest.files) {
  if((Get-FileHash -LiteralPath (Join-Path $bin $record.name)).Hash -ne $record.sha256) {throw "A mod file in the game folder is missing or changed ($($record.name)). Run Install-BatmanAsylumVR.bat again."}
 }
-if((Get-FileHash -LiteralPath $exe).Hash -ne '4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028') {throw 'This copy of the game is a different version from the one the mod was made for (Steam, Game of the Year Edition).'}
+# Steam GOTY, and the same build after the Joker DLC Patcher (two bytes in its DLC flag routine; Godoy301 JOKERCOMPAT).
+if((Get-FileHash -LiteralPath $exe).Hash -notin @('4dac1f5e2ac6710b7378fdce74601f616f4753e3756cb5fda63c7519cc2eb028','ed65ce3c52baca7adaea00cb0e5def3d8a78bd05f7ceacd68a68462e92d8dab2')) {throw 'This copy of the game is a different version from the one the mod was made for (Steam, Game of the Year Edition, unpatched or with the Joker DLC Patcher).'}
 $games=@(Get-Process -ErrorAction SilentlyContinue | Where-Object ProcessName -Match '^(ShippingPC-BmGame|BatmanOrigins|BatmanAC|BatmanAK|ACUnity|sekiro|DarkSoulsIII|armoredcore6|starwarsbattlefrontii|BioShockInfinite|BioshockHD)$')
 if($games.Count) {throw "Close the running game first: $($games.ProcessName -join ', ')"}
 New-Item -ItemType Directory -Path $data -Force | Out-Null
 . (Join-Path $PSScriptRoot 'Graphics-Profile.ps1')
 . (Join-Path $PSScriptRoot 'Render-Size.ps1')
 if(Test-Path -LiteralPath $journal) {Restore-AsylumProfile (Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json);Remove-Item -LiteralPath $journal}
+Remove-AsylumProfileBackups $data
 function Find-SteamVR32 {
  $steam=(Get-ItemProperty 'HKCU:/SOFTWARE/Valve/Steam' -ErrorAction SilentlyContinue).SteamPath
  $candidates=@()
@@ -95,6 +97,6 @@ try {
 } finally {
  if(!(Get-Process 'ShippingPC-BmGame' -ErrorAction SilentlyContinue)) {
   if($observed) {try {$observed.beforeRestore=@(Get-AsylumProfileStatus $files.path);$observed | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $statusPath -Encoding UTF8} catch {Write-Warning "Could not record exit profile: $_"}}
-  Restore-AsylumProfile $profile;Remove-Item -LiteralPath $journal;Write-Host 'Original graphics settings restored.'
+  Restore-AsylumProfile $profile;Remove-Item -LiteralPath $journal;Remove-AsylumProfileBackups $data;Write-Host 'Original graphics settings restored.'
  }
 }
