@@ -1,4 +1,5 @@
 #include "markers9.h"
+#include "head_aim.h"
 #include "core/util/log.h"
 #include <MinHook.h>
 #include <wrl/client.h>
@@ -18,7 +19,7 @@ namespace {
 // direction the game points its edge ring, from the head-free view-space x/y.
 struct Anchor{float world[3]{},ref[4]{};bool off{},gameRef{};float dir[2]{};};
 struct Set{uint32_t frame{};bool valid{};unsigned n{};std::array<Anchor,64> points;};
-struct Pass{uint32_t serial{},frame{},gen{};bool valid{},haveEyeView{};void* view{};math::M baseView{},baseP{},baseVP{},eyeVP[2],eyeView[2];float referenceYaw{},referencePosition[3]{};};
+struct Pass{uint32_t serial{},frame{},gen{};bool valid{},haveEyeView{},headHud{};void* view{};math::M baseView{},baseP{},baseVP{},eyeVP[2],eyeView[2];float referenceYaw{},referencePosition[3]{},unitsPerMetre{90.f};};
 std::array<Pass,64> passes;std::array<Set,16> sets;
 // A2k: the HUD keeps drawing (and animating) a ring on frames with no Canvas.Project;
 // the last projected points stay usable for a quarter second.
@@ -26,7 +27,7 @@ Set held;ULONGLONG heldAt{};constexpr ULONGLONG kHoldMs=250;std::atomic<unsigned
 thread_local Pass gamePass;Pass renderPass;bool renderActive{};std::atomic<bool> on{true};thread_local bool internal{};uint32_t currentGen{};int currentEye{};
 std::atomic<unsigned> projected{};unsigned routed{},misses{},variants{},shaderMisses{},failed{},stale{},maskRejects{};uint32_t runSlot=~0u;unsigned runLeft{},runAnchor=64;
 std::atomic<bool> connectorsOn{true};std::atomic<unsigned> vitalsAdjusted{},vitalsFallback{};bool vitalsOwnerGuard{};
-struct HudPlane{bool valid{};float world[4][3]{};};HudPlane hudPlane;
+struct HudPlane{bool valid{},headFollowing{};float world[4][3]{},shape[3]{};};HudPlane hudPlane;
 wchar_t settings[MAX_PATH]{};uintptr_t imageBase{};
 using Project=float*(__fastcall*)(void*,void*,float*,const float*);Project projectOriginal{};
 using WorldPixel=BOOL(__fastcall*)(void*,void*,const float*,float*);WorldPixel pixelOriginal{};bool pixelGuard{};std::atomic<unsigned>pixelCalls{},pixelPlaced{},pixelRejected{};
@@ -98,7 +99,7 @@ bool pointer(const Pass&p,const Anchor&a,Pass&q,Anchor&out){
  float len=std::hypot(t[0],t[1]);if(!std::isfinite(len))return false;if(len<1e-3f){t[0]=0;t[1]=-1;len=1;}
  const float r=pointerDegrees*3.14159265f/180,v[3]={std::sin(r)*t[0]/len,std::sin(r)*t[1]/len,std::cos(r)};
  float w[3]{},n=0;for(int j=0;j<3;++j){w[j]=v[0]*inv.v[0][j]+v[1]*inv.v[1][j]+v[2]*inv.v[2][j];n+=w[j]*w[j];}n=std::sqrt(n);if(n<1e-6f)return false;
- out=a;out.off=false;for(int j=0;j<3;++j)out.world[j]=inv.v[3][j]+w[j]/n*pointerDistance;
+ out=a;out.off=false;for(int j=0;j<3;++j)out.world[j]=inv.v[3][j]+w[j]/n*pointerDistance*(p.unitsPerMetre/90.f);
  q=p;q.baseView=p.eyeView[0];q.baseVP=p.eyeVP[0];return true;
 }
 bool anchor(const float*world,float*out,bool fromGrapple=false);
@@ -128,7 +129,7 @@ bool anchor(const float*world,float*out,bool fromGrapple){
 // Project the shared head-centre ray onto the actual upright HUD plane. Head
 // orientation is deliberately absent: only translation changes this layout.
 bool plane_target(const Pass&p,const Anchor&a,const float world[4][3],const float head[3],float*xy){
- float local[3]{};for(int j=0;j<3;++j)local[j]=(a.world[0]*p.baseView.v[0][j]+a.world[1]*p.baseView.v[1][j]+a.world[2]*p.baseView.v[2][j]+p.baseView.v[3][j])/90.f;
+ float local[3]{};for(int j=0;j<3;++j)local[j]=(a.world[0]*p.baseView.v[0][j]+a.world[1]*p.baseView.v[1][j]+a.world[2]*p.baseView.v[2][j]+p.baseView.v[3][j])/p.unitsPerMetre;
  local[2]=-local[2];const float c=std::cos(p.referenceYaw),s=std::sin(p.referenceYaw);
  const float target[3]={p.referencePosition[0]+c*local[0]+s*local[2],p.referencePosition[1]+local[1],p.referencePosition[2]-s*local[0]+c*local[2]};
  float right[3],down[3],ray[3];for(int j=0;j<3;++j){right[j]=world[1][j]-world[0][j];down[j]=world[2][j]-world[0][j];ray[j]=target[j]-head[j];}
@@ -149,9 +150,13 @@ bool vitals_projection(const Pass&p,void*view,uintptr_t caller,const Anchor&a,co
 float* __fastcall project_hook(void*view,void*edx,float*out,const float*world){auto*r=projectOriginal(view,edx,out,world);const auto caller=uintptr_t(_ReturnAddress())-imageBase;const bool owned=gamePass.valid&&view==gamePass.view;count(projectCensus,caller,owned,world,out);if(!owned)return r;if(caller==0x658947){if(anchor(world,out)){float w[3]{};if(read(world,w,12))learn_offset(w);}return r;}
  if(!connectorsOn||!vitalsOwnerGuard||caller!=0x118a36b)return r;
  Anchor a{};float original[4]{};if(!read(world,a.world,12)||!read(out,original,16))return r;
- AcquireSRWLockShared(&lock);const HudPlane plane=hudPlane;ReleaseSRWLockShared(&lock);
+ AcquireSRWLockShared(&lock);HudPlane plane=hudPlane;ReleaseSRWLockShared(&lock);
  vr::HeadPose poses[2]{};float angles[2][4]{};
  if(!plane.valid||!vr::get_eye_pose_gen(gamePass.gen,0,poses[0],angles[0])||!vr::get_eye_pose_gen(gamePass.gen,1,poses[1],angles[1])){++vitalsFallback;return r;}
+ // A moving HUD needs this game pass's pose, not the previous compositor
+ // frame's corners. Returning to room mode waits for the new fixed plane.
+ if(gamePass.headHud){if(!head_aim::hud_plane(poses,plane.shape[0],plane.shape[1],plane.shape[2],plane.world)){++vitalsFallback;return r;}}
+ else if(plane.headFollowing){++vitalsFallback;return r;}
  const float head[3]={(poses[0].px+poses[1].px)*.5f,(poses[0].py+poses[1].py)*.5f,(poses[0].pz+poses[1].pz)*.5f};
  if(vitals_projection(gamePass,view,caller,a,plane,head,out)){if(++vitalsAdjusted<=6)BVR_LOG("[aa vitals] original callout owner118a36b frame%u gen%u world%.1f/%.1f/%.1f originalXY%.4f/%.4f sharedHudXY%.4f/%.4f preservedZW%.6f/%.2f",gamePass.frame,gamePass.gen,a.world[0],a.world[1],a.world[2],original[0],original[1],out[0],out[1],out[2],out[3]);}else ++vitalsFallback;
  return r;
@@ -242,7 +247,7 @@ bool install_engine(uintptr_t base){
  for(const auto&x:extra){BYTE got[16]{};*x.guard=read((void*)(base+x.rva),got,16)&&!memcmp(got,x.bytes,16)&&MH_CreateHook((void*)(base+x.rva),x.hook,x.orig)==MH_OK&&MH_QueueEnableHook((void*)(base+x.rva))==MH_OK;BVR_LOG("[aa grapple] %s exact entry guard%u (observe only, original runs first)",x.name,*x.guard);}
  swprintf_s(settings,L"%s\\aa_rendering.ini",log::data_dir());on=GetPrivateProfileIntW(L"AsylumVR",L"WorldGrappleMarkers",1,settings)!=0;orphanHide=GetPrivateProfileIntW(L"AsylumVR",L"HideTargetlessGrapple",0,settings)!=0;{wchar_t v[32]{};GetPrivateProfileStringW(L"AsylumVR",L"HUDDistance",L"4",v,32,settings);const float m=float(wcstod(v,nullptr));pointerDistance=(std::isfinite(m)?std::clamp(m,1.f,16.f):4.f)*90.f;pointerDegrees=std::clamp(float(GetPrivateProfileIntW(L"AsylumVR",L"GrapplePointerDegrees",26,settings)),10.f,40.f);}connectorsOn=GetPrivateProfileIntW(L"AsylumVR",L"WorldVitalsConnectors",1,settings)!=0;BVR_LOG("[aa markers] exact Canvas.Project caller/ret8 ABI; head-free target and per-vertex world card, default%u",on.load());return true;
 }
-void publish(uint32_t slot,uint32_t frame,uint32_t gen,void*view,const math::M&bv,const math::M&bp,const math::M eyeVP[2],float referenceYaw,const float*referencePosition,const math::M*eyeView){Pass p{};if(eyeView){p.eyeView[0]=eyeView[0];p.eyeView[1]=eyeView[1];p.haveEyeView=true;}p.serial=slot;p.frame=frame;p.gen=gen;p.view=view;p.baseView=bv;p.baseP=bp;p.baseVP=math::mul(bv,bp);p.eyeVP[0]=eyeVP[0];p.eyeVP[1]=eyeVP[1];p.referenceYaw=referenceYaw;if(referencePosition)memcpy(p.referencePosition,referencePosition,12);p.valid=true;gamePass=p;AcquireSRWLockExclusive(&lock);passes[slot%passes.size()]=p;ReleaseSRWLockExclusive(&lock);grapple_anchors();}
+void publish(uint32_t slot,uint32_t frame,uint32_t gen,void*view,const math::M&bv,const math::M&bp,const math::M eyeVP[2],float referenceYaw,const float*referencePosition,const math::M*eyeView,bool headHud,float unitsPerMetre){Pass p{};p.unitsPerMetre=unitsPerMetre;p.headHud=headHud;if(eyeView){p.eyeView[0]=eyeView[0];p.eyeView[1]=eyeView[1];p.haveEyeView=true;}p.serial=slot;p.frame=frame;p.gen=gen;p.view=view;p.baseView=bv;p.baseP=bp;p.baseVP=math::mul(bv,bp);p.eyeVP[0]=eyeVP[0];p.eyeVP[1]=eyeVP[1];p.referenceYaw=referenceYaw;if(referencePosition)memcpy(p.referencePosition,referencePosition,12);p.valid=true;gamePass=p;AcquireSRWLockExclusive(&lock);passes[slot%passes.size()]=p;ReleaseSRWLockExclusive(&lock);grapple_anchors();}
 void end_game_pass(){gamePass.valid=false;}
 void begin_render(uint32_t slot,bool active){AcquireSRWLockShared(&lock);renderPass=passes[slot%passes.size()];ReleaseSRWLockShared(&lock);renderPass.serial=slot;renderActive=active;}
 void begin_eye(int eye,uint32_t gen){currentEye=eye;currentGen=gen;if(eye<=0){for(auto&l:layers)l.painted=false;}}
@@ -296,7 +301,7 @@ IDirect3DSurface9* sheet(int eye){return on&&eye>=0&&eye<2&&layers[eye].painted?
 uint32_t generation(){return currentGen;}
 void reset(){grappleTextureCount=0;held={};heldAt=0;orphanRunLeft=0;internal=true;AcquireSRWLockExclusive(&shaderLock);shaders.clear();ReleaseSRWLockExclusive(&shaderLock);for(auto&l:layers)l={};internal=false;renderActive=false;renderPass={};gamePass={};AcquireSRWLockExclusive(&lock);for(auto&p:passes)p={};for(auto&s:sets)s={};hudPlane={};ReleaseSRWLockExclusive(&lock);}
 void draw_ui(){bool connected=connectorsOn.load();if(ImGui::Checkbox("Vital-statistics line and circle follow the person",&connected)){connectorsOn=connected;WritePrivateProfileStringW(L"AsylumVR",L"WorldVitalsConnectors",connected?L"1":L"0",settings);}bool selected=on.load();if(ImGui::Checkbox("Grapple reticle sits on its world target",&selected)){on=selected;WritePrivateProfileStringW(L"AsylumVR",L"WorldGrappleMarkers",selected?L"1":L"0",settings);}}
-void publish_hud_plane(const float world[4][3]){HudPlane plane{};if(world){plane.valid=true;for(int i=0;i<4;++i)for(int j=0;j<3;++j){plane.world[i][j]=world[i][j];if(!std::isfinite(world[i][j]))plane.valid=false;}}AcquireSRWLockExclusive(&lock);hudPlane=plane;ReleaseSRWLockExclusive(&lock);}
+void publish_hud_plane(const float world[4][3],bool headFollowing,const float*shape){HudPlane plane{};plane.headFollowing=headFollowing;if(shape)memcpy(plane.shape,shape,sizeof(plane.shape));if(world){plane.valid=true;for(int i=0;i<4;++i)for(int j=0;j<3;++j){plane.world[i][j]=world[i][j];if(!std::isfinite(world[i][j]))plane.valid=false;}}AcquireSRWLockExclusive(&lock);hudPlane=plane;ReleaseSRWLockExclusive(&lock);}
 void invalidate_hud_plane(){publish_hud_plane(nullptr);}
 void status_line(char*out,size_t n){snprintf(out,n,"enabled%u projected%u placed%u variants%u shaderMiss%u noMatch%u stale%u masks%u failed%u vitalsOwner%u vitalsAdjusted%u vitalsFallback%u pixelGuard%u pixelCalls%u pixelPlaced%u pixelRejected%u | grappleGuard%u%u%u noAim%u/%u withAim%u/%u learnedOffset%d grappleAnchors%u unanchored%u withTarget%u noTarget%u hidden%u hideSwitch%u textures%u | offPoints%u offRejected%u edgeRings%u onPoint%u pointer%u edgeHidden%u edgeUnlearned%u heldFrames%u",on.load(),projected.load(),routed,variants,shaderMisses,misses,stale,maskRejects,failed,vitalsOwnerGuard,vitalsAdjusted.load(),vitalsFallback.load(),pixelGuard,pixelCalls.load(),pixelPlaced.load(),pixelRejected.load(),finderGuard[0],finderGuard[1],uiProjectGuard,grapple[0].found.load(),grapple[0].calls.load(),grapple[1].found.load(),grapple[1].calls.load(),learnedOffset.load(),grappleAnchors.load(),orphans.load(),orphansWithTarget.load(),orphansNoTarget.load(),orphansHidden.load(),orphanHide.load(),grappleTextureCount,offAnchors.load(),offRejected.load(),offMatched.load(),offOnTarget.load(),offPointer.load(),offHidden.load(),offUnlearned.load(),heldUsed.load());census_log(projectCensus,false);census_log(pixelCensus,false);census_log(uiCensus,false);}
 bool eye_origins(uint32_t generation,float left[3],float right[3]){

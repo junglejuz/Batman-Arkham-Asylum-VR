@@ -1,3 +1,134 @@
+## RELEASE 0.1.6 (2026-10-28, JJ: "packaging these up for GitHub ... including all the changes we have done from the pull request
+## up until now")
+Contents since 0.1.5: Godoy301's PR #1 (first-person head aim + head-locked HUD, STEREOPOSE flat-frame fix, world scale; HEADAIM,
+AIMLEVEL), CAMPOS, LEANBACK. Version 0.1.6 (CMake, BUILD_ID Asylum-0.1.6, make_package, panel title). Built in build-headaim (Release),
+14/14 checks; INSTALLED (batman_asylum.dll 0D062A75, manifest version 0.1.6, 0 mismatches; previous in backups/pre-0.1.6-2026-10-28).
+make_package now takes batman_asylum.dll from build-headaim (same CMake options as build-native9); proxies + config tool unchanged
+since 0.1.5 and ship from build-native9 as tested. HEADSET (JJ): head aim round 2 (AIMLEVEL) used in his sessions; CAMPOS / LEANBACK
+not explicitly confirmed. Committed as a merge with the PR head (dacc119) as second parent so GitHub records PR #1 as merged with
+Godoy301's commits. README: head aim / world scale / camera position / lean-back lines + credit. Zip sha256
+6e72da6452ce28edec7210ee10fcd7ab4c355c671db3f012a93dda3b1bed5319.
+
+## CHECK vs City / Origins fixes (2026-10-28, JJ: "check Arkham Asylum for all these same issues with the zoom mode, detective mode
+## and the grapple hooks becoming available when you look instead of move the camera")
+STATIC / SOURCE only (no Asylum launch this session):
+- Zoom: DefaultInput.ini XboxTypeS_RightThumbstick = "DebugMenuSelectA | ToggleCameraZoom" (as City / Origins). The City / Origins bug
+  came from their third-person head-look boom hold; Asylum has no third-person head steering, so its zoom is the game's own - no
+  issue until grapple-look is ported (then port ZOOMFOLLOW with it).
+- Grapple points where you look: missing in third person. Asylum's head aim (Godoy301, head_aim.h / first_person.cpp) runs ONLY in
+  first person (Gate::off when !firstPerson), always on there, HUD on the head - so in first person the game camera already follows
+  the head. Port needed for third person: City/Origins LOOKSTEER (controller pitch / yaw steered without the trigger, drawn from the
+  body basis, boom hold + ZOOMFOLLOW), markers9 reference = the steered game camera (MARKERSTEER), MARKERLAG / MARKERPIN in markers9
+  (Asylum's own A2c..A2k marker system: Canvas.Project caller A58947 + WorldToPixel 658b73, D3D9 widget replay).
+- Detective mode vignette: never examined in Asylum (no notes, no fix). Asylum's materials are D3D9 bytecode through the native9
+  bridge, so City / Origins' D3D11 rebuild does not drop in; needs a census (SCREENMARK-style: scanner/detective vs normal full-screen
+  pixel shaders) and a D3D9 rebuild with overlays at the shared position.
+- Labels / detective vitals: already fixed (A2f, JJ "Looks great").
+
+## LEANBACK (2026-10-27)
+
+JJ (Origins, same first-person code): "When in first person mode and I move my physical head back my virtual camera is moving through
+Batman's head". Looked up: Origins BUILD_PLAN "LEANBACK" + first_person.cpp clamp_eye / scene.cpp (the fix being ported); this file
+FIRSTPERSON / HEADLOCK / HEADAIM. Nothing else in our notes on the headset's position pushing the lens into the body.
+Cause (SOURCE): first_person::apply puts the game camera at his eye point + 25 cm forward (level); native_stereo ctor then adds the
+headset pose (delta(eyes[e]), position included) on top, so leaning back 25 cm puts the lens inside his head.
+Change (SOURCE): first_person::clamp_eye + native_stereo lean_clamp - after each eye's final view is built (right after
+`v=mul(v,delta(eyes[e]))`), in first person (apply reached its end this pair) its origin may come no nearer than "closest to his face
+when you lean back" (default 15 cm, 0-40, never more than "camera in front of his face") to his eye point (before the push) along the
+pair's level push direction (the forward of the view apply pushed along = the head-aimed body when head aim drives it, else the game
+camera). Only that component is limited; sideways / up / down stay free; both eyes alike (stereo kept). Same clamp on the marker eye
+views and AFW's other-eye view; the particle centre delta subtracts the shift. Units 90 UU/m = apply's push. Head aim untouched (the
+clamp only moves the translation row after it). Saved aa_rendering.ini [AsylumVR] FirstPersonLeanMinCm (Asylum's key style); panel
+FIRST PERSON slider under "camera up / down"; command `aa fp lean <cm>`; TESTS line "lean-back held N" (counts eye + marker views).
+Built in build-headaim (Release, no warnings), 14/14 checks. INSTALLED 2026-10-27 (game not running): batman_asylum.dll only, sha256
+C87FBF2A..., 2108416 bytes, launcher manifest entry updated, all 15 listed files re-checked; previous AIMLEVEL DLL + manifest in
+backups/pre-LEANBACK-2026-10-27. Build id unchanged (Asylum-0.1.5-HEADAIM). Not released. HEADSET pending: in first person lean back
+slowly - the view stops ~15 cm in front of his face instead of entering his head; lean sideways / up / down still moves freely.
+
+## HEADAIM - Godoy301's PR #1 merged locally (JJ 2026-10-25: "this guy made some changes to our Arkham Asylum mod. can we incorporate these into our one, and also into the other 3 too?")
+
+Looked up: GitHub PR #1 (github.com/junglejuz/Batman-Arkham-Asylum-VR/pull/1, branch Godoy301:feat/first-person-head-aim, head
+dacc119, 8 commits; their notes in RE_NOTES "HEAD-AIM".."HEAD-AIM5" and HEAD_AIM_TESTING.md); this file FIRSTPERSON / HEADLOCK /
+JOKERCOMPAT; memory arkham-first-person-asylum-origins, github-repos; VR_ESSENTIALS §4 + playbook 09 #pose-timing-contract and
+STR-002 (one pose sample for both eyes, publish pairs whole) = exactly what the flash fix restores; Origins scene.cpp VIEWDEBOUNCE3
+(same one-frame "no fresh pose generation" symptom, masked there). Nothing else in our notes on headset-aimed first person.
+
+What the PR brings (SOURCE, their CPU tests; the contributor reports HEAD-AIM3 aim and the HEAD-AIM4 flash fix working in their headset):
+- **Head aim** (FIRST PERSON -> "aim and HUD follow the headset", on by default, `FirstPersonLookAim`): writes the headset's look
+  direction into Controller.Rotation (+0x60) on the game thread, removing its own previous contribution each frame so nothing
+  accumulates; stick yaw stays additive, stick pitch is zeroed while it is on. The HUD becomes one head-locked plane for both eyes
+  (detective callouts follow it). Gated off in the main menu, with the VR panel open, without a pose or Batman, camera > 12 m away.
+- **STEREOPOSE flash fix**: head + both eyes + FOVs published as one sample after xrLocateViews (core openxr_runtime +
+  stereo_pose_mailbox.h). Before, the game thread could read a new head before its eyes = 1-2 flat frames, often in smoke.
+- **World scale** 0.50x-2.00x at the top of the panel (`WorldScale`, 1.00 = 90 UU/m as before). WORLDSCALEDIR (JJ 2026-10-25:
+  "Make all the mods so that when you raise the slider it reduces the size of the world"): flipped to 90 x scale UU/m, label
+  "world scale  (higher = the world looks smaller)" like City / Origins; Knight's three sliders already went that way (units per
+  metre / eye separation). A `WorldScale` saved by the PR's own builds now means the inverse size.
+- Menu-reader diagnostics, [aa head aim] log lines, head_aim.csv in each F2 capture, 3 new CPU tests.
+
+Merge (2026-10-25, uncommitted, on top of 0.1.5 + CAMPOS): the PR branch starts at 0.1.4 (merge base 5991146), so it was merged
+3-way against that base (a first attempt against 0.1.5 rolled back 0.1.5 files for a few minutes; repaired, see memory
+`contributor-pr-merge-base`). Conflicts only in first_person.cpp with CAMPOS: CAMPOS runs with first person off, head aim only with
+it on; head-aim bookkeeping (release_aim / aim_state / pitch gate) only when first person is on. Not taken: the PR's README line
+("this fork's development change"); README gets plain lines + credit at release. Kept: their workflow, HEAD_AIM_TESTING.md, tests.
+Build id Asylum-0.1.5-HEADAIM. Built in build-headaim (Release, no warnings): 14/14 checks pass. INSTALLED 2026-10-25 (JJ "Yes,
+install"): batman_asylum.dll only (proxies unchanged), sha256 94FEC0AA..., launcher manifest updated and every listed file
+re-checked; previous CAMPOS DLL + manifest in backups/pre-HEADAIM-2026-10-25. NOT released; PR #1 still open on GitHub.
+
+### HEADAIM round 2 (JJ 2026-10-26, first headset session)
+JJ: with "aim and HUD follow the headset" ticked in first person "you can get stuck looking down at the ground and you have to
+untick that or tick it in order to be able to release it". LIVE log 23:08-23:09: every VR-panel open = "release ... VR panel owns
+input", every close = "active via validated first-person pawn" with a FRESH tracker; Tracker::remove kept the game's pitch at
+take-over (committed ? lastBody.pitch : current) and stick pitch is blocked, so a down-looking take-over stayed down.
+AIMLEVEL fix (head_aim.h): while the headset owns up / down the body pitch is always level (0); release restores level too. No
+feedback loop (body pitch no longer reads the engine). Regression in head_aim_check (take-over at -30 deg, x3).
+Panel (JJ "What are the full view sliders in the view menu? Do we need them still? The world scale slider should go into the view
+menu"): world scale moved into VIEW (above camera position), as City / Origins; the "Full view" safe-lighting / exact-lens pair
+(= centred enclosing lens vs true off-centre lens, which loses lights in one eye) left VIEW for the TESTS drawer (LENSTEST); JJ's
+ini has LightingCompatibility=1, so nothing changes for him. Built, 14/14 checks. INSTALLED 2026-10-26 after JJ closed the game
+(sha256 85591E3A..., manifest updated + every file re-checked; previous build in backups/pre-AIMLEVEL-2026-10-26). HEADSET pending.
+
+### TEST PLAN HEADAIM (JJ drives, one launch; CAMPOS tests can share it)
+| # | what JJ does | what it proves | how to judge |
+|---|---|---|---|
+| 1 | gameplay, third person, walk through smoke / steam for a minute moving the head | flash fix | no flat frames; log `[aa native] ... flatDraws` stays ~0 |
+| 2 | panel top: world scale 0.75, 1.25, Reset | world scale | 0.75 = larger world, 1.25 = smaller; grapple + detective markers stay on their targets |
+| 3 | FIRST PERSON on (aim box ticked): look at an enemy, throw a batarang; look at a grapple point | head aim | it goes where you look; grapple marker on the point |
+| 4 | stick left / right, then up / down | stick rules | left / right turns; up / down does nothing |
+| 5 | look around in first person | head-locked HUD | HUD stays in front, same depth in both eyes |
+| 6 | untick the aim box | restore | HUD back in the room, stick up / down works again |
+| 7 | pause menu, map, back to main menu with first person on | gates | no jumps, normal menus; Asylum has no pause signal, so note what aim does behind pause |
+
+## CAMPOS - adjustable third-person camera position from Arkham Knight (JJ 2026-10-25: "put the adjustable camera from our Arkham knight mod panel into the other 3 arkham mods")
+
+Looked up: AKVR TPOFFSET (akvr/src/camera.cpp TPOFFSET, hooks.cpp VIEW "camera position"; akvr_native/NOTES.md "TPPITCH + TPOFFSET
+2026-10-18", released in AK 0.3.1); this game's FIRSTPERSON / FPGATE (the camera mover this rides on); memory
+arkham-first-person-asylum-origins, batman-city-first-person, origins-install-manifest. Playbook / framework: nothing new needed - a
+translation of the head-free game camera at the scene-view inputs, the engine rebuilds culling from it (same route as first person).
+AK's TPPITCH look-down limit was NOT ported (it is a separate AK-only control; JJ asked for the camera position).
+
+What it does (SOURCE): panel VIEW -> "camera position  (third person)" (open the first time): left / right, down / up, back / forward,
+-300..+300 cm each, "Reset position". The game camera's origin moves along its LEVEL right / LEVEL forward and world up (AK's frame,
+so it never swings with the head or tilts with the camera's pitch). Applied to the head-free game camera before the eye offsets, so
+both eyes, markers and AFW follow it. Only in third-person gameplay: off in first person and through first person's FPGATE checks
+(menus, no Batman found, game camera more than 12 m from Batman = main menu stand-in, distant cutscenes). Costs
+nothing while all three are 0 (default). The game's own camera collision does not know about the shift: big values can put the
+camera into walls (same as AK).
+Asylum has no pause signal (as first person): the shift stays behind the pause menu.
+Saved: aa_rendering.ini [AsylumVR] CameraRightCm / CameraUpCm / CameraForwardCm. Command: `aa fp cam R U F` (cm). Status: "moved frames N" under TESTS.
+
+Built (Release, no warnings), offline checks pass; installed batman_asylum.dll into JJ's game folder 2026-10-25 (previous DLL + manifest in
+backups/pre-CAMPOS-2026-10-25; launcher manifest hash updated and re-checked). Not released. HEADSET pending.
+
+### TEST PLAN CAMPOS (JJ drives, one launch, no restart needed)
+| # | what JJ does | what it proves | how to judge |
+|---|---|---|---|
+| 1 | gameplay, panel VIEW -> camera position: left / right to +60 | the shift happens, along the level right | Batman slides to the left of the view, horizon stays level |
+| 2 | turn with the stick and with the head | frame is the game camera's heading, not the head | offset stays to the side of Batman on stick turns; no swing on head turns |
+| 3 | down / up +50, back / forward -100 | the other two axes | camera higher / further back; looking down does not tilt the shift |
+| 4 | pause menu, map, first person on | the gates | game camera unchanged in menus and first person |
+| 5 | Reset position | defaults restore | the game's own framing |
+
 ## RELEASE 0.1.5 (2026-10-21, JJ: "ok deploy, update the github page with release notes")
 
 PROFILECLEAN + JOKERCOMPAT (below). 0.1.4 was already public (2026-10-20), so this is 0.1.5 (CMake, build id

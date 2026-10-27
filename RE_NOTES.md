@@ -2422,3 +2422,116 @@ once-only UI side effects, headset fusion, shaders/reflections or endurance.
 
 ## FIRSTPERSON (STATIC 2026-10-20)
 Pawn / head-bone offsets for first person, found by City's code shape: table and evidence in BUILD_PLAN "FIRSTPERSON"; code comment at the top of src/game/asylum/first_person.cpp.
+
+## HEAD-AIM (fork development)
+
+Reuses the Asylum Controller.Rotation +0x60 layout documented above and in
+BUILD_PLAN FIRSTPERSON, with the existing live pawn +0x1B4 controller backlink.
+No new native seam or donor address was inferred. Writes run on the game thread
+after the main-view matrix and first-person distance gates, once per draw pair.
+The previous owned yaw/pitch contribution is removed before adding the current
+head orientation; new stick/engine deltas remain. The render view uses that body
+basis and the original full per-eye XR transform once. Both eyes share the cached
+first-person view. Readback and restoration failures are counted.
+
+The HUD uses one head-centred plane built from the two exact-generation eye
+poses. Detective callout projection reconstructs that moving plane with its
+own game-pass generation instead of using old compositor corners. Target markers
+retain their world positions. Third-person and disabled head-aim paths retain
+the existing room plane.
+
+CPU math evidence is in tests/head_aim_check.cpp. Controller readback is not
+evidence of gadget consumption: simulation may use the previous tick's rotation.
+Pause/cinematic gating and actual target/impact correspondence remain retail
+checks. See HEAD_AIM_TESTING.md for the grouped session and log fields.
+
+## HEAD-AIM2 (retail gate failure)
+
+User-supplied HEAD-AIM status: native paired scene, enabled/requested=1,
+active=0, writes=0, reason=not gameplay, fpFrames=14354, headFrames=7177,
+headMisses=0. Particle unknownStock=54338 (menuStock=0) confirms the shared
+menu-state observation was unknown, not positive menu evidence. All 256 trace
+samples were inactive (249 not-gameplay, 7 native-pose-unavailable). Thus the
+new direction write and head HUD were never exercised; the first-person pawn
+and camera path was already running. This is a gate defect in HEAD-AIM.
+
+Keep the menu reader's existing offsets/validation and record its failure
+stage/count/capacity. Only head aim gains a fallback to the established native
+first-person guards: valid controlled pawn/controller reciprocal relationship,
+finite eye position, validated main camera within the existing 12m limit.
+Known menu, disabled settings, absent native pose and VR input ownership still
+deny writes. Unknown remains unknown in diagnostics and other consumers.
+The portable production gate regression covers this captured failure and the
+remaining denials. Retail gadget consumption and unrecognized menus/cinematics
+remain unverified; HEAD-AIM2 is the first build able to reach the drive on this
+reported setup.
+
+
+## HEAD-AIM3 (walking pitch feedback)
+
+User confirms HEAD-AIM2 head aim works, reports reversed pitch only while
+walking. New log confirms active writes/readbacks with zero failures; attached
+status/CSV are from old HEAD-AIM (writes=0), so no per-frame moving trace is
+available. Body pitch varies even with sampled RX/RY=0. Auto-centering of the
+injected Controller pitch is a plausible feedback source, not a proven native
+call-site identification. Preserve committed body pitch without deliberate
+vertical stick input; continue accepting yaw deltas. Regression simulates the
+engine zeroing pitch for 300 frames with head +45/-45, then an additive stick
+change. No new offsets/hooks into the game executable.
+
+Final XInput axis callback covers real/composed pad, excludes nested calls and
+overlay polling. Asylum installs it to observe actual delivered axes and apply
+optional vertical-only block (persistent, off by default); valid first-person
+publication expires after 250ms. Trace includes movement, raw/delivered pitch,
+and blocking/input decisions. Mouse pitch unsupported by stabilized policy;
+engine pitch adjustments during deliberate stick pitch remain inseparable.
+Retail walking/stereo/gadget behavior awaits user test, separate from CPU tests.
+
+
+## HEAD-AIM4 (complete stereo pose publication)
+
+User accepts HEAD-AIM3 walking/head aim, requests automatic stick pitch lock
+and removal of its separate checkbox. Lock now follows FirstPersonLookAim;
+legacy FirstPersonBlockStickPitch is ignored. Head-aim body pitch stays fixed
+regardless of stick input; game-facing right Y is zeroed in the valid native
+first-person context. Head aim off restores stock vertical input, yaw unchanged.
+
+Latest supplied HEAD-AIM3 log has 57 native-pose-unavailable transitions, no
+native matrix/tag/base-camera faults. CSV: 251 active samples and 5 unavailable.
+User sees 1-2 flat third-person frames in both eyes, often in smoke. SOURCE:
+xrLocateSpace publishes head/id before xrLocateViews populates the generation
+ring. Native draw reads head then that ring using separate locks: scheduling
+between publications returns false and eye=0, so first person is skipped and
+the bridge receives the stock flat frame. Smoke causality itself is unproven.
+
+Publish a complete StereoPoseMailbox after both locate calls and pose-ring
+publication; native draw copies head, eyes, FOV and generation under ONE mutex.
+The writer does not hold the mutex over OpenXR calls. The previous complete
+sample remains readable during locate, as with any latest-sample API; invalid
+tracking at completion and teardown explicitly invalidate it. No held images,
+unbounded last-valid tracking fallback, arbitrary particle changes or new RE
+seams. Legacy head/eye APIs retained for other consumers.
+
+Portable regression deterministically pauses the writer after new head locate
+but before eyes; reader gets complete previous generation, then new generation.
+Tests invalid tracking, teardown/recovery and 100000 concurrent publications.
+Native log adds coherentPoseUnavailable/flatDraws plus bounded fallback reasons.
+Windows/CPU validation is separate from smoke/headset confirmation.
+
+
+## HEAD-AIM5 (world scale)
+
+User accepts HEAD-AIM4 flash fix. Add World scale (0.5..2, default 1) and reset
+at top of F10, saved as AsylumVR/WorldScale. Larger means larger apparent world:
+units/metre = 90 / scale. Snapshot once per draw pair for all eye transforms,
+AFW, marker eye matrices and particle centre deltas. Marker HUD intersections
+convert world points with per-pass units; edge pointers retain physical depth.
+Keep avatar bone attachment/forward offset and pawn-camera distance safety gate
+in original game units, independent of visual world size. HUD stays XR metres.
+Reset DLSS/AFW history when the first rendered camera of the new scale arrives,
+not while queued older cameras are still being consumed. Camera carries units.
+CPU scene projection test checks physical binocular disparity and translation
+at four scales, unchanged FOV/rotation, default and invalid value bounds.
+Actual scale/markers/AFW perception needs headset confirmation.
+WORLDSCALEDIR (merge into 0.1.5, JJ 2026-10-25): direction flipped to match the other Arkham mods - units/metre = 90 * scale,
+higher = smaller-looking world (BUILD_PLAN "HEADAIM").

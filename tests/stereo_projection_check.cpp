@@ -4,11 +4,33 @@
 #include "core/util/xr_math.h"
 #include <cstdio>
 #include <cmath>
+#include <limits>
 using bvr::aa::math::M;
 namespace math=bvr::aa::math;
 void transform(const M&m,const float in[4],float out[4]){for(int j=0;j<4;++j){out[j]=0;for(int i=0;i<4;++i)out[j]+=in[i]*m.v[i][j];}}
 bool same_ray(const float a[4],const float b[4]){return a[3]>0&&b[3]>0&&std::fabs(a[0]/a[3]-b[0]/b[3])<.00002f&&std::fabs(a[1]/a[3]-b[1]/b[3])<.00002f;}
 int main(){
+ // World-scale regression: a fixed 450-unit target has the stereo disparity
+ // of a target at (5 / scale) real metres (higher scale = smaller world). Head translation uses that same
+ // conversion, with identical rotations and projection/FOV at every scale.
+ for(float scale:{.5f,1.f,1.5f,2.f}) {
+  const float units=math::world_units(scale);float projected[2]{};
+  for(int eye=0;eye<2;++eye){
+   bvr::vr::HeadPose pose{};pose.qw=1;pose.px=.2f+(eye?.032f:-.032f);pose.py=.1f;pose.pz=-.3f;
+   auto v=math::pose_view(pose,units);M inverse{};if(!math::inverse(v,inverse))return 10;
+   if(std::fabs(inverse.v[3][0]-pose.px*units)>.0001f ||
+      std::fabs(inverse.v[3][1]-pose.py*units)>.0001f ||
+      std::fabs(inverse.v[3][2]+pose.pz*units)>.0001f)return 11;
+   // Target 450 units ahead of translated head centre (no angular FOV change).
+   const float point[4]={.2f*units,.1f*units,.3f*units+450,1};float q[4];transform(v,point,q);
+   projected[eye]=q[0]/q[2];
+   if(v.v[0][0]!=1 || v.v[1][1]!=1 || v.v[2][2]!=1)return 12;
+  }
+  if(std::fabs((projected[0]-projected[1])-.064f*scale/5)>.000001f)return 13;
+ }
+ if(math::world_units(1)!=90 || math::world_units(0)!=45 || math::world_units(9)!=180 ||
+    math::world_units(std::numeric_limits<float>::quiet_NaN())!=90)return 14;
+ std::puts("PASS: world scale preserves FOV and rotations; binocular disparity and head translation match physical scale.");
  constexpr float rad=3.141592654f/180;
  for(int pose=0;pose<3;++pose){
   float q[4]={0,0,0,1};if(pose)bvr::xrmath::xr_local_trim_quat(16*rad,31*rad,-22*rad,q);

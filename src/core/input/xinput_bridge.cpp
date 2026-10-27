@@ -29,6 +29,7 @@ using SetPostGetStateFn = void(WINAPI*)(PostGetStateHook hook);
 
 std::atomic<bool> g_registered{false};
 std::atomic<ButtonFilter> g_buttonFilter{nullptr};
+std::atomic<StickFilter> g_stickFilter{nullptr};
 thread_local unsigned t_filterNesting=0;
 struct InputCall { InputCall() { ++t_filterNesting; } ~InputCall() { --t_filterNesting; } };
 std::atomic<bool> g_enabled{false};
@@ -347,6 +348,8 @@ void compose_over(DWORD userIndex, XINPUT_STATE* xs, DWORD* result) {
         ~FilterOnReturn() {
             if(t_menuPoll || t_filterNesting>1 || !state || !result || *result!=ERROR_SUCCESS ||
                g_blockGamePad.load() || GetTickCount64()<g_blockUntilMs.load()) return;
+            if(auto fn=g_stickFilter.load()) fn(index,&state->Gamepad.sThumbLX,&state->Gamepad.sThumbLY,
+                &state->Gamepad.sThumbRX,&state->Gamepad.sThumbRY);
             if(auto fn=g_buttonFilter.load()) fn(index,&state->Gamepad.wButtons);
         }
     } filter{userIndex,xs,result};
@@ -1222,6 +1225,7 @@ bool test_buttons_down() {
     return false;
 }
 void set_menu_poll(bool on) { t_menuPoll = on; }
+void set_stick_filter(StickFilter filter) { g_stickFilter.store(filter); }
 void set_button_filter(ButtonFilter filter) { g_buttonFilter.store(filter); }
 
 } // namespace bvr::input

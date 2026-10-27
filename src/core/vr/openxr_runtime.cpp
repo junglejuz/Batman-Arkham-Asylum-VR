@@ -5,6 +5,7 @@
 // quad layer containing a copy of the game backbuffer.
 
 #include "core/vr/openxr_runtime.h"
+#include "core/vr/stereo_pose_mailbox.h"
 #include "core/ui/overlay.h"
 
 #include "core/gfx/blit.h"
@@ -339,6 +340,7 @@ PoseGen g_poseGens[kPoseGens];
 std::mutex g_poseGenMutex;
 uint32_t g_newestLocatedGen{}; // protected by g_poseGenMutex
 uint32_t g_poseGenCounter = 0;
+StereoPoseMailbox g_stereoPose;
 uint32_t g_headPoseGen = 0;             // under g_poseMutex, with g_headPose
 std::atomic<bool> g_exactPoseTag{true};
 std::atomic<uint32_t> g_srDirectGen{0};  // render thread: gen of the frame about to present
@@ -2388,6 +2390,7 @@ void teardown_session(const char* why) {
         std::lock_guard<std::mutex> lock(g_poseMutex);
         g_poseValid = false;
     }
+    g_stereoPose.invalidate();
     g_viewsValid = false;
     g_viewsContentValid = false;
     g_projectionReady.store(false, std::memory_order_relaxed);
@@ -3523,6 +3526,19 @@ void on_present_begin(IDXGISwapChain* swapchain) {
         pg.v[1] = g_views[1];
         pg.valid = g_viewsValid;
     }
+    // Head publication above is legacy API behavior. Native stereo must not
+    // observe thisGen until xrLocateViews and its generation ring are ready.
+    StereoPose stereo{}; stereo.generation=thisGen;
+    stereo.head={sl.pose.position.x,sl.pose.position.y,sl.pose.position.z,
+        sl.pose.orientation.x,sl.pose.orientation.y,sl.pose.orientation.z,sl.pose.orientation.w};
+    for(int e=0;e<2;++e) {
+        const auto& v=g_views[e];
+        stereo.eyes[e]={v.pose.position.x,v.pose.position.y,v.pose.position.z,
+            v.pose.orientation.x,v.pose.orientation.y,v.pose.orientation.z,v.pose.orientation.w};
+        stereo.angles[e][0]=v.fov.angleLeft; stereo.angles[e][1]=v.fov.angleRight;
+        stereo.angles[e][2]=v.fov.angleUp; stereo.angles[e][3]=v.fov.angleDown;
+    }
+    g_stereoPose.publish(stereo,poseOk && g_viewsValid);
     phase_record(kPhLocate, tPhase);
     // s51: the VDXR view logger - a bounded, self-expiring burst (the fov-watch
     // lesson: nothing unthrottled lives on the present path). Answers whether
@@ -5643,6 +5659,15 @@ void set_pose_lag(int lag) {
 
 int get_pose_lag() { return g_poseLag.load(std::memory_order_relaxed); }
 
+bool get_stereo_pose(StereoPose& out) {
+    if(!g_stereoPose.read(out)) return false;
+    g_consumedHeadQuat[0].store(out.head.qx,std::memory_order_relaxed);
+    g_consumedHeadQuat[1].store(out.head.qy,std::memory_order_relaxed);
+    g_consumedHeadQuat[2].store(out.head.qz,std::memory_order_relaxed);
+    g_consumedHeadQuat[3].store(out.head.qw,std::memory_order_relaxed);
+    g_consumedHeadCount.fetch_add(1,std::memory_order_relaxed);
+    return true;
+}
 bool get_head_pose_gen(HeadPose& out, uint32_t* gen) {
     std::lock_guard<std::mutex> lock(g_poseMutex);
     if (!g_poseValid) return false;
@@ -6417,6 +6442,7 @@ void set_pace_detach(bool) {}
 void set_pace_sync(bool) {}
 void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
+bool get_stereo_pose(StereoPose&) { return false; }
 bool get_head_pose_gen(HeadPose&, uint32_t*) { return false; }
 void sr_set_present_gen(uint32_t) {}
 void set_exact_pose_tag(bool) {}

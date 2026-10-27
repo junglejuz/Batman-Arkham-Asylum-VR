@@ -9,7 +9,7 @@ import argparse, hashlib, os, re, shutil, sys, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-VERSION = '0.1.5'
+VERSION = '0.1.6'
 ap = argparse.ArgumentParser()
 ap.add_argument('--settings', default=os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Batman_Asylum', 'aa_rendering.ini'))
 a = ap.parse_args()
@@ -31,8 +31,11 @@ for f in ('Install-BatmanAsylumVR.bat', 'Install-BatmanAsylumVR.ps1', 'Uninstall
           'Uninstall-BatmanAsylumVR.ps1', 'Batman Asylum VR.bat', 'Batman Asylum VR (SteamVR).bat'):
     put(os.path.join(inst, f), f)
 rel = os.path.join(ROOT, 'build-native9', 'Release')
-for f in ('d3d9.dll', 'xinput1_3.dll', 'batman_asylum.dll', 'aa_xr_config32.exe'):
+for f in ('d3d9.dll', 'xinput1_3.dll', 'aa_xr_config32.exe'):
     put(os.path.join(rel, f), f)
+# 0.1.6: the mod DLL from build-headaim (Godoy301's PR #1 merged with 0.1.5, + CAMPOS, LEANBACK; same CMake options as
+# build-native9); the proxies and config tool are unchanged since 0.1.5 and ship as tested
+put(os.path.join(ROOT, 'build-headaim', 'Release', 'batman_asylum.dll'), 'batman_asylum.dll')
 av = os.path.join('files', 'AsylumVR')
 for f in ('Launch-VR.ps1', 'Graphics-Profile.ps1', 'Render-Size.ps1'):
     put(os.path.join(HERE, f), os.path.join(av, f))
@@ -65,7 +68,7 @@ for dp, _, fs in os.walk(stage):
             if b.count(b'\n') != b.count(b'\r\n'): bad.append(f + ': not CRLF')
 for f in ('d3d9.dll', 'xinput1_3.dll'):
     if b'[batman_asylum-proxy]' not in open(os.path.join(stage, f), 'rb').read(): bad.append(f + ' is not ours')
-if b'Asylum-0.1.5' not in open(os.path.join(stage, 'batman_asylum.dll'), 'rb').read(): bad.append('batman_asylum.dll is not the 0.1.5 build')
+if b'Asylum-0.1.6' not in open(os.path.join(stage, 'batman_asylum.dll'), 'rb').read(): bad.append('batman_asylum.dll is not the 0.1.6 build')
 st = open(os.path.join(stage, 'files', 'aa_rendering.ini'), encoding='latin-1').read()
 if '[AsylumVR]' not in st: bad.append('aa_rendering.ini lacks [AsylumVR]')
 if re.search(r'(?im)^(AutoCaptures|HideTargetlessGrapple|FixStaleParticles)\s*=\s*1', st): bad.append('aa_rendering.ini has a test switch on')

@@ -25,7 +25,13 @@ nothing lags behind when the camera swings. Made the same way as
 - **Detective mode details** (the lines and rings on people) point at the people they belong to.
 - **Menus and loading screens** on a screen in the room.
 - **First person, if you want it**: tick FIRST PERSON in the VR menu, or click both thumbsticks twice quickly. The
-  camera sits at Batman's eyes and follows his head; it switches back by itself on the main menu and in movies, and whenever the game moves its camera away from him.
+  camera sits at Batman's eyes and follows his head; it switches back by itself on the main menu and in movies, and whenever the game moves its camera away from him. Leaning back stops just in front of his face.
+- **Aim with your head in first person** (on by default; VR menu, FIRST PERSON > "aim and HUD follow the headset"):
+  batarangs and the batclaw go where you look, and the HUD stays in front of your eyes. The right stick turns you left
+  and right; up and down come from your head. By [Godoy301](https://github.com/Godoy301).
+- **World scale** (VR menu, VIEW): higher makes the world look smaller.
+- **Camera position**: move the third-person camera left / right, up / down and closer / further (VR menu, VIEW >
+  camera position).
 - **An in-headset VR menu**: hold both thumbsticks down (or press F10). Render size, DLSS, HUD size and distance, and
   more. Settings are saved.
 
@@ -113,7 +119,8 @@ The DLSS helper needs NVIDIA's NGX SDK. Development notes: `STATUS.md`, `BUILD_P
 
 Built on [bioshock-vr](https://github.com/mohamad-balouza/bioshock-vr) (MIT), MinHook, Dear ImGui and the OpenXR SDK.
 The per-eye DLSS method follows the [Luma Framework](https://github.com/Filoppi/Luma-Framework)'s Arkham Knight mod.
-Joker DLC Patcher support found by [Godoy301](https://github.com/Godoy301/Batman-Arkham-Asylum-VR).
+Joker DLC Patcher support, first-person head aim, the flat-frame fix and the world-scale slider by
+[Godoy301](https://github.com/Godoy301/Batman-Arkham-Asylum-VR).
 DLSS and NVAPI are NVIDIA's. Full list: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 The picture at the top is the game's own Steam store artwork, shown from Steam (Batman: Arkham Asylum © Warner Bros.
 Entertainment); it is not part of this repository.

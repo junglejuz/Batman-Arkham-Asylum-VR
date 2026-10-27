@@ -1,0 +1,30 @@
+name: Windows head aim checks
+on:
+  push:
+    branches: [feat/first-person-head-aim]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  win32:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC Win32
+        run: cmake -S . -B build-native9 -G "Visual Studio 17 2022" -A Win32 -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      - name: Compile mod and CPU regressions
+        run: cmake --build build-native9 --config Release --parallel 2 --target batman_asylum d3d9 xinput1_3 asylum_head_aim_check asylum_stereo_pose_check asylum_menu_state_check asylum_present_sequence_check asylum_opening_movies_check asylum_stereo_projection_check
+      - name: Run CPU regressions (GPU and game runtime require a player PC)
+        run: ctest --test-dir build-native9 -C Release --output-on-failure --no-tests=error -R "^(first_person_head_aim|coherent_stereo_pose|menu_state_diagnostics|native_present_sequence|opening_movie_identity|scene_and_canvas_projection)$"
+      - name: Save test DLLs (install through the complete 0.1.4 package; see guide)
+        uses: actions/upload-artifact@v4
+        with:
+          name: head-aim-test-dlls
+          path: |
+            build-native9/Release/batman_asylum.dll
+            build-native9/Release/d3d9.dll
+            build-native9/Release/xinput1_3.dll
+            HEAD_AIM_TESTING.md
+          if-no-files-found: error

@@ -256,6 +256,13 @@ int get_pose_lag();
 // came from; the adapter hands that id back (render thread, before the frame's Present) with
 // sr_set_present_gen, and the projection layer is tagged with that locate's own views.
 bool get_head_pose_gen(HeadPose& out, uint32_t* gen);
+// Published only after BOTH locate calls finish. One coherent generation.
+struct StereoPose {
+    HeadPose head{}, eyes[2]{};
+    float angles[2][4]{};
+    uint32_t generation{};
+};
+bool get_stereo_pose(StereoPose& out);
 // Origins: retrieve both complete eye poses and lenses from the SAME located generation.
 bool get_eye_pose_gen(uint32_t gen, int eye, HeadPose& out, float angles[4]);
 void sr_set_present_gen(uint32_t gen);

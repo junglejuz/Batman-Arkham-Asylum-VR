@@ -2,6 +2,12 @@
 
 README.md is the player page since release 0.1.0; these are the development checkpoints it used to hold.
 
+CURRENT 0.1.6 RELEASED (2026-10-28): Godoy301's PR #1 (head aim, flat-frame fix, world scale) + CAMPOS + LEANBACK; BUILD_PLAN "RELEASE 0.1.6".
+
+CURRENT LEANBACK (2026-10-27, installed, not released): first person - leaning back no longer takes the lens into Batman's head (panel slider "closest to his face when you lean back", default 15 cm). sha256 C87FBF2A..., previous DLL in backups/pre-LEANBACK-2026-10-27. HEADSET pending; BUILD_PLAN "LEANBACK".
+
+CURRENT CAMPOS (2026-10-25, installed, not released): Arkham Knight's third-person camera position sliders (panel VIEW). HEADSET pending; BUILD_PLAN "CAMPOS". The installed DLL predates the head-aim PR merge (merged build: build-headaim).
+
 CURRENT 0.1.5 RELEASED (2026-10-21): PROFILECLEAN + JOKERCOMPAT; BUILD_PLAN "RELEASE 0.1.5".
 
 CURRENT PROFILECLEAN + JOKERCOMPAT (2026-10-21, in 0.1.5): launcher deletes its settings backup folders after a good restore; Joker DLC Patcher exe accepted (Godoy301). BUILD_PLAN "PROFILECLEAN + JOKERCOMPAT".

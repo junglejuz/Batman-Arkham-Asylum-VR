@@ -2,6 +2,9 @@
 #include "core/vr/openxr_runtime.h"
 #include <cmath>
 namespace bvr::aa::math {
+// Game units per real metre. WORLDSCALEDIR (JJ 2026-10-25: "when you raise the slider it reduces the size of the world",
+// as City / Origins / Knight): a higher scale = more units per metre = a smaller-looking world.
+inline float world_units(float scale){return 90.f*(std::isfinite(scale)?std::fmax(.5f,std::fmin(2.f,scale)):1.f);}
 struct alignas(16) M {float v[4][4];};
 inline M mul(const M&a,const M&b){M r{};for(int i=0;i<4;i++)for(int j=0;j<4;j++)for(int k=0;k<4;k++)r.v[i][j]+=a.v[i][k]*b.v[k][j];return r;}
 inline M pose_view(const vr::HeadPose&p,float units=90){

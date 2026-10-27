@@ -1,5 +1,7 @@
 #include "d3d9_bridge.h"
 #include "native_stereo.h"
+#include "first_person.h"
+#include "head_aim.h"
 #include "hud9.h"
 #include "dlss.h"
 #include "afw.h"
@@ -222,6 +224,8 @@ ComPtr<ID3D11Texture2D> hudSource,hudImage;
 ComPtr<ID3D11ShaderResourceView> hudSourceSrv,hudSrv;
 ComPtr<ID3D11RenderTargetView> hudRtv;
 uint32_t hudGeneration{};bool hudFresh=false,hudPlaced=false;
+bool hudHeadLocked{};uint32_t hudPlacedGeneration{};
+float hudShape[3]{};
 std::atomic<bool> hudRecentre{true};
 std::atomic<float> hudDistance{4},hudScale{1};wchar_t hudSettings[MAX_PATH]{};
 float hudWorld[4][3]{};
@@ -363,26 +367,34 @@ bool fixture_connector_gpu(){
 }
 bool compose_original_hud(ID3D11DeviceContext* ctx,int e,ID3D11Texture2D* dst){
  if(!hudFresh||hudGeneration!=hud9::generation()||!dst)return true;
+ const bool follow=native::head_hud(hudGeneration);
  ComPtr<ID3D11Device> dev;ComPtr<ID3D11RenderTargetView> rt;ctx->GetDevice(&dev);D3D11_TEXTURE2D_DESC d{};dst->GetDesc(&d);
  D3D11_RENDER_TARGET_VIEW_DESC rd{};rd.Format=d.Format==DXGI_FORMAT_R8G8B8A8_TYPELESS?DXGI_FORMAT_R8G8B8A8_UNORM:d.Format;rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
- if(FAILED(dev->CreateRenderTargetView(dst,&rd,&rt)))return false;
+ if(FAILED(dev->CreateRenderTargetView(dst,&rd,&rt))){first_person::note_hud(hudGeneration,follow,false);return false;}
     vr::HeadPose poses[2]{};float angles[2][4]{};XrView views[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};
-    for(int i=0;i<2;++i){if(!vr::get_eye_pose_gen(hudGeneration,i,poses[i],angles[i])){return true;}
+    for(int i=0;i<2;++i){if(!vr::get_eye_pose_gen(hudGeneration,i,poses[i],angles[i])){first_person::note_hud(hudGeneration,follow,false);return false;}
         auto& v=views[i];const auto& p=poses[i];v.pose.orientation={p.qx,p.qy,p.qz,p.qw};v.pose.position={p.px,p.py,p.pz};v.fov={angles[i][0],angles[i][1],angles[i][2],angles[i][3]};}
     if(hudRecentre.exchange(false)){hudPlaced=false;markers9::invalidate_hud_plane();}
-    if(!hudPlaced){
+    if(!hudPlaced||hudHeadLocked!=follow||(follow&&hudPlacedGeneration!=hudGeneration)){
         const auto& p=poses[0];const float yaw=std::atan2(2*(p.qx*p.qz+p.qw*p.qy),1-2*(p.qx*p.qx+p.qy*p.qy));
         D3D11_TEXTURE2D_DESC hd{};hudImage->GetDesc(&hd);float inner=10;
         for(int i=0;i<2;++i)inner=std::fmin(inner,std::fmin(-std::tan(angles[i][0]),std::tan(angles[i][1])));
         const float distance=hudDistance.load();const float hw=distance*inner*.82f*hudScale.load(),hh=hw*hd.Height/hd.Width;
         const float centre[3]={(poses[0].px+poses[1].px)*.5f,(poses[0].py+poses[1].py)*.5f,(poses[0].pz+poses[1].pz)*.5f};
-        for(int c=0;c<4;++c){const float local[3]={c&1?hw:-hw,c&2?-hh:hh,-distance};float rotated[3];xrmath::quat_rotate(0,std::sin(yaw*.5f),0,std::cos(yaw*.5f),local,rotated);for(int j=0;j<3;++j)hudWorld[c][j]=centre[j]+rotated[j];}
-        hudPlaced=true;BVR_LOG("[aa HUD] shared upright plane placed at eye level, distance %.2fm, width %.2fm",distance,2*hw);
+        if(follow){
+            if(!head_aim::hud_plane(poses,distance,hw,hh,hudWorld)){first_person::note_hud(hudGeneration,true,false);return false;}
+        } else {
+            for(int c=0;c<4;++c){const float local[3]={c&1?hw:-hw,c&2?-hh:hh,-distance};float rotated[3];xrmath::quat_rotate(0,std::sin(yaw*.5f),0,std::cos(yaw*.5f),local,rotated);for(int j=0;j<3;++j)hudWorld[c][j]=centre[j]+rotated[j];}
+        }
+        if(!hudPlaced||hudHeadLocked!=follow) BVR_LOG("[aa HUD] mode=%s gen=%u distance=%.2fm width=%.2fm",follow?"headset":"room",hudGeneration,distance,2*hw);
+        hudShape[0]=distance;hudShape[1]=hw;hudShape[2]=hh;
+        hudPlaced=true;hudHeadLocked=follow;hudPlacedGeneration=hudGeneration;
     }
-    markers9::publish_hud_plane(hudWorld);
+    markers9::publish_hud_plane(hudWorld,follow,hudShape);
     float clip[4][4];for(int c=0;c<4;++c)vr::preview::clip(views[e],hudWorld[c],clip[c]);
-    if(!blit::premul_in_eye(ctx,rt.Get(),d.Width,d.Height,hudSrv.Get(),clip))BVR_LOG("[aa HUD] projected overlay failed");
- return true;
+    const bool ok=blit::premul_in_eye(ctx,rt.Get(),d.Width,d.Height,hudSrv.Get(),clip);
+    first_person::note_hud(hudGeneration,follow,ok);
+ return ok;
 }
 // Dim only the final world; menu/HUD is drawn next and stays legible.
 // Reuse the existing state-restoring full-viewport mask pass. A constant white
@@ -749,7 +761,7 @@ void draw_hud_ui(){
  if(overlay::SliderStep("HUD distance (metres)",&d,1,16,"%.1f")){hudDistance=d;changed=true;}
  if(overlay::SliderStep("HUD size",&s,.3f,1.2f)){hudScale=s;changed=true;}
  if(changed){wchar_t v[32];swprintf_s(v,L"%.2f",d);WritePrivateProfileStringW(L"AsylumVR",L"HUDDistance",v,hudSettings);swprintf_s(v,L"%.2f",s);WritePrivateProfileStringW(L"AsylumVR",L"HUDScale",v,hudSettings);hudRecentre=true;markers9::invalidate_hud_plane();}
- ImGui::TextWrapped("HUD stays upright in the room and is added after DLSS and AFW.");
+ ImGui::TextWrapped("In first person, enable 'aim and HUD follow the headset' to keep the HUD in front of you. Otherwise it stays in the room.");
 }
 void recenter_hud(){hudRecentre=true;markers9::invalidate_hud_plane();dlss::reset();}
 bool save_hud(const wchar_t* path){return hudFresh&&hudImage&&gfx_hud::save_texture_bmp(context.Get(),hudImage.Get(),path);}

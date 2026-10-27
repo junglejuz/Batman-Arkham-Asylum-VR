@@ -12,6 +12,9 @@ namespace bvr::input {
 // Adapter button consumption after composition; the owner keeps the release.
 using ButtonFilter = void (*)(unsigned userIndex, uint16_t* buttons);
 void set_button_filter(ButtonFilter filter);
+// Final game-facing axes; excludes overlay polling and nested hook calls.
+using StickFilter = void (*)(unsigned userIndex, int16_t* lx, int16_t* ly, int16_t* rx, int16_t* ry);
+void set_stick_filter(StickFilter filter);
 
 // Mirrors XINPUT_GAMEPAD (12 bytes) without leaking Xinput.h to callers.
 struct Gamepad {

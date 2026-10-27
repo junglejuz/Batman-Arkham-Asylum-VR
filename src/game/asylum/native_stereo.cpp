@@ -15,6 +15,8 @@
 #include "first_person.h"
 #include "core/vr/openxr_runtime.h"
 #include "core/util/log.h"
+#include "core/ui/overlay.h"
+#include <cstdlib>
 #include <windows.h>
 #include <dxgi.h>
 #include <MinHook.h>
@@ -39,6 +41,8 @@ Draw drawOriginal{};Calc calcOriginal{};Ctor ctorOriginal{};
 uintptr_t base{};
 std::atomic<bool> ready{false},wantNative{true},failed{false},recentre{true};
 std::atomic<bool> centredLens{true};
+std::atomic<float> worldScale{1.f};
+thread_local float pairUnits=90.f;
 thread_local bool pairCentred{};
 thread_local bool pairAFW{};thread_local int afwNext{};
 thread_local float pairJitterX{},pairJitterY{};
@@ -46,7 +50,7 @@ thread_local unsigned pairInputWidth{},pairInputHeight{};
 Camera renderedCamera{};
 std::atomic<W> width{},height{},owner{};
 std::atomic<unsigned> draws{},pairs{},edits{},invalid{},misses{},baseChanged{};
-std::atomic<unsigned> completed{};
+std::atomic<unsigned> completed{}, poseUnavailable{}, flatDraws{};
 std::atomic<ULONGLONG> lastPresent{};
 std::atomic<const char*> failureReason{"No validation failure"};
 struct Caller {W rva{};unsigned prepass{},ordinary{},views{};} callers[16]{};
@@ -86,7 +90,18 @@ void relative(vr::HeadPose&p){
  float c=std::cos(-yawRef),s=std::sin(-yawRef),dx=p.px-posRef[0],dz=p.pz-posRef[2];
  p.px=c*dx+s*dz;p.py-=posRef[1];p.pz=-s*dx+c*dz;
 }
-M delta(const vr::HeadPose&p){return math::pose_view(p);}
+M delta(const vr::HeadPose&p){return math::pose_view(p,pairUnits);}
+// LEANBACK (JJ 2026-10-27: "When in first person mode and I move my physical head back my virtual camera is moving through Batman's
+// head"): a final eye view (headset position included) whose origin leaning back brought into his head moves forward along the level
+// push; both eyes, markers and AFW's other eye alike. shift = how far its world origin moved (for the particle centre delta).
+bool lean_clamp(M&view,float shift[3]){
+ float o[3];for(int i=0;i<3;++i)o[i]=-(view.v[3][0]*view.v[i][0]+view.v[3][1]*view.v[i][1]+view.v[3][2]*view.v[i][2]);
+ const float before[3]={o[0],o[1],o[2]};
+ if(!first_person::clamp_eye(o,90.f))return false; // 90 = apply's units, so the limit matches the forward push
+ for(int j=0;j<3;++j)view.v[3][j]=-(o[0]*view.v[0][j]+o[1]*view.v[1][j]+o[2]*view.v[2][j]);
+ if(shift)for(int i=0;i<3;++i)shift[i]=o[i]-before[i];
+ return true;
+}
 M lens(M p,int e){return math::projection(p,angles[e]);}
 void stop(const char*why){failureReason=why;if(!failed.exchange(true))BVR_LOG("[aa native] disabled: %s; restart required",why);}
 bool tag(void*p,int e,W gen){
@@ -103,8 +118,10 @@ void __fastcall draw(void*self,void*edx){
  markers9::end_game_pass();
  if(depth||!main_viewport(self)){drawOriginal(self,edx);return;}
  const W ra=W(reinterpret_cast<uintptr_t>(_ReturnAddress())-base);++draws;
- poseValid=vr::get_head_pose_gen(head,&generation);
- if(poseValid)for(int e=0;e<2;e++)poseValid=vr::get_eye_pose_gen(generation,e,eyes[e],angles[e])&&poseValid;
+ vr::StereoPose stereo{};poseValid=vr::get_stereo_pose(stereo);
+ if(poseValid){head=stereo.head;generation=stereo.generation;
+  memcpy(eyes,stereo.eyes,sizeof(eyes));memcpy(angles,stereo.angles,sizeof(angles));}
+ else generation=0;
  if(poseValid){
   if(recentre.exchange(false)){yawRef=std::atan2(2*(head.qx*head.qz+head.qw*head.qy),1-2*(head.qx*head.qx+head.qy*head.qy));posRef[0]=head.px;posRef[1]=head.py;posRef[2]=head.pz;}
   relative(head);relative(eyes[0]);relative(eyes[1]);
@@ -116,7 +133,13 @@ void __fastcall draw(void*self,void*edx){
  // Select only this target's observed ordinary viewport and an owner whose
  // actual CalcSceneView->constructor has already passed matrix validation.
  const bool active=ready&&wantNative&&!failed&&poseValid&&width&&height&&owner==ra&&renders;
- pairMode=menu_state::current(); // One engine-state snapshot shared by both eyes.
+ if(renders && wantNative && !active){
+  const auto n=++flatDraws;if(!poseValid)++poseUnavailable;
+  if(n<=8 || n%120==0)BVR_LOG("[aa native fallback] flatDraw=%u coherentPose=%u ready=%u failed=%u size=%ux%u owner=%08X caller=%08X",n,poseValid,ready.load(),failed.load(),width.load(),height.load(),owner.load(),ra);
+ }
+ const auto mode=menu_state::observe();pairMode=mode.mode; // One snapshot shared by both eyes.
+ if(renders)first_person::begin_frame(active,mode,generation);
+ pairUnits=math::world_units(worldScale.load());
  pairCentred=centredLens.load();pairAFW=active&&afw::on();
  pairInputWidth=width;pairInputHeight=height;
  if(active&&pairCentred){float crop[2][4];for(int e=0;e<2;++e)math::lens_crop(angles[e],crop[e]);
@@ -155,7 +178,7 @@ void* __fastcall ctor(void*self,void*edx,A24){
  if(!read(reinterpret_cast<void*>(a15),&v,64)||!read(reinterpret_cast<void*>(a16),&p,64)||!matrices(v,p)||value(a13)<=0||value(a14)<=0){++invalid;if(eye)stop("camera input rejected");return ctorOriginal(self,edx,P24);}
  found=true;if(!eye||!poseValid)return ctorOriginal(self,edx,P24);
  // FIRSTPERSON: the game camera at his eyes; both eyes move alike, so the between-eyes check below still holds.
- first_person::apply(v.v,90.f);
+ const bool headHud=first_person::apply(v.v,90.f,head);
  if(eye<0||pairAFW){firstView=v;firstProjection=p;firstRect[0]=a11;firstRect[1]=a12;firstRect[2]=a13;firstRect[3]=a14;
   static unsigned rectLogs=0;if(rectLogs++<3)BVR_LOG("[aa native] raw main rect %.0f,%.0f %.0fx%.0f; actual source %ux%u; pose generation %u",value(a11),value(a12),value(a13),value(a14),width.load(),height.load(),generation);
  }
@@ -165,18 +188,19 @@ void* __fastcall ctor(void*self,void*edx,A24){
   for(auto&s:states)if(s.left==a2||!s.left){if(!s.left){s.left=a2;s.right=reinterpret_cast<Alloc>(base+0x6f25a0)();BVR_LOG("[aa native] independent right history %08X -> %p",a2,s.right);}if(s.right){a2=W(s.right);have=true;}break;}
   if(!have){stop("right history allocation failed");return ctorOriginal(self,edx,P24);}
  }
- if(haveSlot){M markerEyes[2]{},markerViews[2]{};for(int i=0;i<2;++i){markerViews[i]=mul(firstView,delta(eyes[i]));markerEyes[i]=mul(markerViews[i],lens(firstProjection,i));}markers9::publish(gameSlot,draws.load(),generation,self,firstView,firstProjection,markerEyes,yawRef,posRef,markerViews);}
+ if(haveSlot){M markerEyes[2]{},markerViews[2]{};for(int i=0;i<2;++i){markerViews[i]=mul(firstView,delta(eyes[i]));lean_clamp(markerViews[i],nullptr);markerEyes[i]=mul(markerViews[i],lens(firstProjection,i));}markers9::publish(gameSlot,draws.load(),generation,self,firstView,firstProjection,markerEyes,yawRef,posRef,markerViews,headHud,pairUnits);}
  const int e=eye<0?0:1;v=mul(v,delta(eyes[e]));
+ float leanShift[3]{};lean_clamp(v,leanShift); // LEANBACK: the lens never goes back into his head
  // Particle expansion gets the game camera's orientation/centre, while its
  // projection keeps this real eye. Compute centre delta in the game frame,
  // avoiding subtraction of large rounded world-space camera positions.
  if(haveSlot){M inverseGame{};if(math::inverse(firstView,inverseGame)){
-  const double localEye[3]={eyes[e].px*90.,eyes[e].py*90.,-eyes[e].pz*90.};float centreDelta[3]{};
-  for(int i=0;i<3;++i){double d{};for(int j=0;j<3;++j)d-=localEye[j]*inverseGame.v[j][i];centreDelta[i]=float(d);}
+  const double localEye[3]={eyes[e].px*double(pairUnits),eyes[e].py*double(pairUnits),-eyes[e].pz*double(pairUnits)};float centreDelta[3]{};
+  for(int i=0;i<3;++i){double d{};for(int j=0;j<3;++j)d-=localEye[j]*inverseGame.v[j][i];centreDelta[i]=float(d)-leanShift[i];}
   billboard9::publish(gameSlot,&firstView.v[0][0],&v.v[0][0],centreDelta,pairMode);
  }}
  M outputProjection=lens(p,e);p=pairCentred?math::centred_projection(p,angles[e]):outputProjection;
- Camera camera{};camera.view=v;camera.projection=outputProjection;camera.generation=generation;camera.width=width;camera.height=height;camera.eye=e;camera.valid=true;camera.centred=pairCentred;camera.afw=pairAFW;
+ Camera camera{};camera.view=v;camera.projection=outputProjection;camera.generation=generation;camera.width=width;camera.height=height;camera.eye=e;camera.valid=true;camera.centred=pairCentred;camera.afw=pairAFW;camera.headHud=headHud;camera.unitsPerMetre=pairUnits;
  camera.inputWidth=pairInputWidth;camera.inputHeight=pairInputHeight;
  memcpy(camera.angles,angles[e],sizeof(camera.angles));if(pairCentred)math::lens_crop(angles[e],camera.crop);
  camera.jitterX=pairJitterX;camera.jitterY=pairJitterY;
@@ -191,7 +215,7 @@ void* __fastcall ctor(void*self,void*edx,A24){
  if(pairAFW&&haveSlot){
   M unjittered=camera.projection;unjittered.v[2][0]-=2*pairJitterX/camera.inputWidth;unjittered.v[2][1]+=2*pairJitterY/camera.inputHeight;
   M otherProjection=math::projection(unjittered,angles[e^1]);
-  const M otherView=mul(firstView,delta(eyes[e^1]));
+  M otherView=mul(firstView,delta(eyes[e^1]));lean_clamp(otherView,nullptr);
   afw::set_camera_pass(gameSlot,e,&v.v[0][0],&camera.projection.v[0][0],&unjittered.v[0][0],&otherView.v[0][0],&otherProjection.v[0][0],camera.inputWidth,camera.inputHeight,camera.crop,camera.width,camera.height);
  }
 
@@ -209,6 +233,10 @@ bool install(){
  base=uintptr_t(GetModuleHandleW(nullptr));
  menu_state::install(base);
  wchar_t settings[MAX_PATH];swprintf_s(settings,L"%s\\aa_rendering.ini",log::data_dir());centredLens=GetPrivateProfileIntW(L"AsylumVR",L"LightingCompatibility",1,settings)!=0;first_person::install(base,settings);
+ wchar_t scaleText[32]{};GetPrivateProfileStringW(L"AsylumVR",L"WorldScale",L"1",scaleText,32,settings);
+ wchar_t* scaleEnd=nullptr;const float savedScale=float(wcstod(scaleText,&scaleEnd));
+ worldScale=(scaleEnd!=scaleText && !*scaleEnd && std::isfinite(savedScale) && savedScale>=.5f && savedScale<=2.f)?savedScale:1.f;
+ BVR_LOG("[aa world scale] loaded %.2fx (%.2f units/metre)",worldScale.load(),math::world_units(worldScale.load()));
  const Seam seams[]={{0x8cae50,"6aff689225cd0164a1000000005081ec",3,(void*)draw,(void**)&drawOriginal},{0x49e620,"558bec83e4f06aff686930c90164a100",9,(void*)calc,(void**)&calcOriginal},{0x6ecc60,"558bec83e4f06aff68da53cb0164a100",9,(void*)ctor,(void**)&ctorOriginal},{0x6f25a0,"6aff68cb5acb0164a1000000005051a1",3,nullptr,nullptr}};
  for(const auto&s:seams){BYTE expected[16]{},actual[16]{};for(int n=0;n<16;n++){unsigned v;sscanf_s(s.sig+2*n,"%2x",&v);expected[n]=BYTE(v);}if(s.relocation){W ptr;memcpy(&ptr,expected+s.relocation,4);ptr+=W(base-0x400000);memcpy(expected+s.relocation,&ptr,4);}if(!read((void*)(base+s.rva),actual,16)||memcmp(expected,actual,16)){BVR_LOG("[aa native] Asylum seam guard failed at RVA %08X",s.rva);return false;}}
  bool ok=markers9::install_engine(base);for(const auto&s:seams)if(s.hook){if(MH_CreateHook((void*)(base+s.rva),s.hook,s.orig)!=MH_OK){ok=false;break;}MH_QueueEnableHook((void*)(base+s.rva));}
@@ -235,6 +263,10 @@ void on_present(IDXGISwapChain*sc){
  bool valid=false;AcquireSRWLockShared(&tagLock);
  renderedCamera={};if(haveRenderSlot){const auto&t=tags[renderSlot%64];valid=t.serial==renderSlot&&t.viewValid;if(valid)renderedCamera=t.camera;}
  ReleaseSRWLockShared(&tagLock);
+ // Reset temporal history on the actual rendered scale transition, not while
+ // older queued pairs still use the previous UI value.
+ static float renderedUnits=90.f;
+ if(valid && renderedCamera.unitsPerMetre!=renderedUnits){renderedUnits=renderedCamera.unitsPerMetre;dlss::reset();afw::reset();}
  haveRenderSlot=false; // An extra movie/loading Present cannot reuse this eye.
  const auto result=presentSequence.present(!failed&&valid);
  switch(result.fault){
@@ -249,6 +281,14 @@ void on_present(IDXGISwapChain*sc){
 }
 void discard_present(){renderedCamera={};haveRenderSlot=false;presentSequence.reset();renderEye=0;billboard9::begin_render(0,false);vr::set_camera_mode(false);vr::sr_set_present_eye(0);vr::sr_set_present_gen(0);}
 bool camera(Camera& out){out=renderedCamera;return renderEye!=0&&out.valid&&out.eye==(renderEye<0?0:1);}
+bool head_hud(uint32_t gen){
+ bool result=false;AcquireSRWLockShared(&tagLock);
+ // DLSS may finish the left after another eye was submitted. Match its exact
+ // pose generation, never a live toggle or the newest render-thread camera.
+ for(unsigned n=0;n<64&&n<writeTag;++n){const auto&t=tags[(writeTag-1-n)%64];
+  if(t.viewValid&&t.camera.generation==gen){result=t.camera.headHud;break;}}
+ ReleaseSRWLockShared(&tagLock);return result;
+}
 bool afw_present(){return renderEye!=0&&renderedCamera.valid&&renderedCamera.afw;}
 void set_centred(bool on){centredLens=on;dlss::reset();afw::reset();wchar_t settings[MAX_PATH];swprintf_s(settings,L"%s\\aa_rendering.ini",log::data_dir());WritePrivateProfileStringW(L"AsylumVR",L"LightingCompatibility",on?L"1":L"0",settings);BVR_LOG("[aa native] scene lens %s; XR retains actual asymmetric lens",on?"centred enclosure":"direct asymmetric");}
 bool centred(){return centredLens;}
@@ -260,10 +300,23 @@ const char* rendering_status(){
  return owner?"Floating screen - no stereo scene in this Present":"Floating screen - waiting for a 3D scene render";
 }
 unsigned completed_pairs(){return completed;}
-void status(){BVR_LOG("[aa native] selected %u ready %u failed %u owner %08X | draws %u queuedPairs %u completedPairs %u edits %u invalid %u tagMiss %u baseCameraChanged %u | %s",wantNative.load(),ready.load(),failed.load(),owner.load(),draws.load(),pairs.load(),completed.load(),edits.load(),invalid.load(),misses.load(),baseChanged.load(),rendering_status());billboard9::status();}
+void status(){BVR_LOG("[aa native] selected %u ready %u failed %u owner %08X | draws %u queuedPairs %u completedPairs %u edits %u invalid %u tagMiss %u baseCameraChanged %u coherentPoseUnavailable %u flatDraws %u | %s",wantNative.load(),ready.load(),failed.load(),owner.load(),draws.load(),pairs.load(),completed.load(),edits.load(),invalid.load(),misses.load(),baseChanged.load(),poseUnavailable.load(),flatDraws.load(),rendering_status());billboard9::status();}
 bool selected(){return wantNative;}
 void select(bool on){wantNative=on;dlss::reset();afw::reset();if(on)recentre=true;}
 void recenter(){recentre=true;dlss::reset();afw::reset();}
 int present_eye(){return renderEye;}
+float world_scale(){return worldScale.load();}
+void draw_world_scale_ui(){
+ float scale=worldScale.load();
+ bool changed=overlay::SliderStep("world scale  (higher = the world looks smaller)",&scale,.5f,2.f,"%.2fx");
+ ImGui::SameLine();if(ImGui::Button("Reset##world-scale")){scale=1.f;changed=true;}
+ ImGui::TextDisabled("1.00x = original size.");
+ if(changed && std::isfinite(scale)){
+  scale=std::clamp(scale,.5f,2.f);worldScale=scale;
+  wchar_t path[MAX_PATH],text[32];swprintf_s(path,L"%s\\aa_rendering.ini",log::data_dir());swprintf_s(text,L"%.3f",scale);
+  WritePrivateProfileStringW(L"AsylumVR",L"WorldScale",text,path);
+  BVR_LOG("[aa world scale] %.2fx (%.2f units/metre); applies from next stereo pair",scale,math::world_units(scale));
+ }
+}
 void draw_ui(){bool on=wantNative;if(ImGui::Checkbox("Use native stereo",&on))select(on);ImGui::TextWrapped("Rendering: %s",rendering_status());if(failed)ImGui::TextWrapped("%s. Restart required.",failureReason.load());ImGui::Text("Completed pairs %u / camera edits %u",completed.load(),edits.load());billboard9::draw_ui();hud9::draw_ui();}
 }

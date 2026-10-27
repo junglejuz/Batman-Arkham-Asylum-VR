@@ -59,6 +59,7 @@ void capture(IDXGISwapChain* sc) {
     SYSTEMTIME now{};GetLocalTime(&now);
     swprintf_s(dir,L"%s\\A2p_%04u%02u%02u_%02u%02u%02u_%03u",root,now.wYear,now.wMonth,now.wDay,now.wHour,now.wMinute,now.wSecond,now.wMilliseconds);
     if(!CreateDirectoryW(dir,nullptr)) {BVR_LOG("[aa capture] directory failed %lu",GetLastError());return;}
+    first_person::save_trace(dir);
     ComPtr<ID3D11Device> dev;ComPtr<ID3D11DeviceContext> ctx;ComPtr<ID3D11Texture2D> image;
     if(FAILED(sc->GetDevice(IID_PPV_ARGS(&dev))) || FAILED(sc->GetBuffer(0,IID_PPV_ARGS(&image))))return;
     dev->GetImmediateContext(&ctx);D3D11_TEXTURE2D_DESC d{};image->GetDesc(&d);
@@ -72,6 +73,7 @@ void capture(IDXGISwapChain* sc) {
         fprintf(f,"Asylum A2p; nativeSelected=%u presentEye=%d completedPairs=%u; centredScene=%u; AFW=%u\nrendering=%s\nsource=%ux%u format=%u sourceSaved=%u\npreview=%s\ndlss=%s\ncompareStep=%d; transferComparison=%u; trackingComparison=%u; sceneTracking=%u; completedPairFps=%.2f\n",native::selected(),native::present_eye(),native::completed_pairs(),native::centred(),native::afw_present(),native::rendering_status(),d.Width,d.Height,d.Format,saved,vr::flat_preview()==2?"full":vr::flat_preview()==1?"fit":"window",dlssStatus,compareStep,compareTransfer,compareTracking,hud9::fast_tracking(),actualPairFps);
         char particleStatus[320]{};billboard9::status_line(particleStatus,sizeof(particleStatus));fprintf(f,"particles=%s\n",particleStatus);
         char transitionStatus[320]{};transitions9::status_line(transitionStatus,sizeof(transitionStatus));fprintf(f,"transitions=%s\n",transitionStatus);char markerStatus[640]{};markers9::status_line(markerStatus,sizeof(markerStatus));fprintf(f,"markers=%s\n",markerStatus);
+        char aimStatus[1024]{};first_person::status_line(aimStatus,sizeof(aimStatus));fprintf(f,"build=%s\nworldScale=%.3f\nheadAim=%s\n",BVR_BUILD_ID,native::world_scale(),aimStatus);
         fclose(f);
     }
     vr::save_eye_pictures(dir);
@@ -109,7 +111,7 @@ void on_present(IDXGISwapChain* sc) {
     if((f2&&!wasF2)||(keyF2&1)){DWORD foreground{};GetWindowThreadProcessId(GetForegroundWindow(),&foreground);const bool xrFocus=!strcmp(vr::session_state_name(),"FOCUSED");
         if(foreground==GetCurrentProcessId()||xrFocus){stereo_history::request_save();captureRequested=true;eyesame9::request();BVR_LOG("[aa capture] F2 accepted: desktopFocus=%u headsetFocus=%u; still AND preceding history",foreground==GetCurrentProcessId(),xrFocus);}
         else BVR_LOG("[aa capture] F2 ignored: game has neither desktop nor headset focus");}wasF2=f2;
-    if(now>=next) {next=now+5000;render_anchor_status();bridge::status();native::status();hud9::status();transitions9::status();char markers[640]{};markers9::status_line(markers,sizeof(markers));BVR_LOG("[aa markers] %s",markers);char xform[160]{};xform9::status_line(xform,sizeof(xform));BVR_LOG("[aa xform] %s",xform);dlss::status();window::status();afw::command("status");}
+    if(now>=next) {next=now+5000;char aimStatus[1024]{};first_person::status_line(aimStatus,sizeof(aimStatus));BVR_LOG("[aa head aim] %s",aimStatus);render_anchor_status();bridge::status();native::status();hud9::status();transitions9::status();char markers[640]{};markers9::status_line(markers,sizeof(markers));BVR_LOG("[aa markers] %s",markers);char xform[160]{};xform9::status_line(xform,sizeof(xform));BVR_LOG("[aa xform] %s",xform);dlss::status();window::status();afw::command("status");}
     compare_tick();
     // Two bounded captures after ordinary rendering starts, by elapsed time.
     // No game launch automation, no VR-mode decision from frame counts.
@@ -153,7 +155,7 @@ void on_present(IDXGISwapChain* sc) {
 bool testOptions=false;
 bool test_options(){return testOptions;}
 void draw_ui() {
-    ImGui::TextUnformatted("Batman Asylum VR 0.1.5");
+    ImGui::TextUnformatted("Batman Asylum VR 0.1.6");
     ImGui::TextWrapped("F10 or hold both sticks to open/close. Settings save automatically.");
     stereo_history::draw_ui();
     if(ImGui::Button("Recentre view and screens")){vr::recenter_panel();native::recenter();bridge::recenter_hud();}
@@ -166,9 +168,8 @@ void draw_ui() {
         if(afw::on())afw::draw_ui();
     }
     if(ImGui::CollapsingHeader("VIEW")){
-        bool compatible=native::centred();
-        if(ImGui::RadioButton("Full view, safe lighting (recommended)",compatible))native::set_centred(true);
-        if(ImGui::RadioButton("Full view, exact lens (some lights may go missing in one eye)",!compatible))native::set_centred(false);
+        native::draw_world_scale_ui(); // JJ 2026-10-26: "The world scale slider should go into the view menu"
+        first_person::draw_camera_ui(); // CAMPOS (AKVR "camera position")
     }
     if(ImGui::CollapsingHeader("HUD"))bridge::draw_hud_ui();
     if(ImGui::CollapsingHeader("MENUS AND SCREENS")){
@@ -194,6 +195,11 @@ void draw_ui() {
         if(ImGui::Button("Compare tower shading"))compare_start();
         ImGui::EndDisabled();
         if(compareStep>=0)ImGui::TextUnformatted("Comparison running; pictures save automatically.");
+        // LENSTEST (JJ 2026-10-26 asked whether the VIEW "Full view" pair is still needed): the exact lens loses lights in one
+        // eye, so it left the main menu (memory panel-labels-plain-no-bad-switches); safe lighting stays the default.
+        bool compatible=native::centred();
+        if(ImGui::RadioButton("Lens: centred, safe lighting (normal)",compatible))native::set_centred(true);
+        if(ImGui::RadioButton("Lens: exact off-centre (lights may go missing in one eye)",!compatible))native::set_centred(false);
         bridge::draw_ui();native::draw_ui();transitions9::draw_ui();markers9::draw_ui();hud9::draw_ui();
     }
 }
